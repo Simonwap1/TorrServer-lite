@@ -9,17 +9,17 @@ films.err.log
 films.out.log
 ts-start.log
 
-# Базы и состояние TorrServer
+# Базы и состояние TorrServer (личные)
 config.db
 settings.json
 viewed.json
 *.db
 *.db-journal
 
-# Бинарники и чужие дистрибутивы (качайте отдельно)
+# Чужие дистрибутивы / мусор установщика
 *.exe
-TorrServer-windows-amd64.exe
-TorrServerGUI.exe
+!TorrServer-windows-amd64.exe
+!TorrServerGUI.exe
 unins000.*
 tools/
 prowlarr/

@@ -15,5 +15,9 @@ TorrServer создан **YouROK**: https://github.com/YouROK/TorrServer
 ## Что нужно
 
 - Python 3
-- TorrServer (`TorrServer-windows-amd64.exe` рядом с `films.pyw`)
+- `TorrServer-windows-amd64.exe` (есть в репозитории)
 - ffmpeg (ставится автоматически в `tools/ffmpeg` при первом запуске)
+
+## Что не в git
+
+Личные данные и тяжёлый мусор не выкладываются: торренты, `hls_cache`, базы (`config.db`), логи, Prowlarr, `tools/ffmpeg`.
