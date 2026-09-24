@@ -20,8 +20,27 @@ JACRED_PORT = 9117
 TS_EXE = os.path.join(ROOT, "TorrServer-windows-amd64.exe")
 GATEWAY = os.path.join(ROOT, "ipad", "gateway.py")
 ICON_FILE = os.path.join(ROOT, "films.ico")
-OPEN_URL = "http://192.168.31.231:%d/" % UI_PORT
-TIP_TEXT = "Фильмы — http://192.168.31.231:%d/" % UI_PORT
+
+
+def _guess_lan_ip() -> str:
+    try:
+        import socket
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.3)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+    return "127.0.0.1"
+
+
+_LAN = _guess_lan_ip()
+OPEN_URL = "http://127.0.0.1:%d/" % UI_PORT
+TIP_TEXT = "Фильмы — http://%s:%d/" % (_LAN, UI_PORT)
 MENU_OPEN = "Открыть"
 MENU_CLEAR_HLS = "Очистить HLS кэш"
 MENU_EXIT = "Выход"
@@ -192,6 +211,21 @@ def ensure_deps():
     script = os.path.join(ROOT, "ipad", "ensure_ffmpeg.py")
     if not os.path.isfile(script):
         return True
+    # уже есть — тихо
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "ipad"))
+        import ensure_ffmpeg as _ef  # type: ignore
+
+        if _ef.find_ffmpeg():
+            return True
+        user32.MessageBoxW(
+            None,
+            "Первый запуск: скачиваю ffmpeg (~80 МБ).\nНужен интернет, подождите…",
+            "Фильмы",
+            0x40,
+        )
+    except Exception:
+        pass
     try:
         r = subprocess.run(
             [sys.executable, script],

@@ -2,22 +2,26 @@
 
 Упрощённый веб-интерфейс для iPad поверх [TorrServer / MatriX](https://github.com/YouROK/TorrServer) (**YouROK**).
 
-- UI: порт `8080` (`ipad/gateway.py` + `ipad/index.html`)
-- TorrServer: порт `8092`
-- Запуск на Windows: `films.pyw` или `start.bat`
+## Запуск (Windows)
 
-Репозиторий: https://github.com/Simonwap1/TorrServer-lite
+1. Скачайте ZIP: [Code → Download ZIP](https://github.com/Simonwap1/TorrServer-lite/archive/refs/heads/main.zip)
+2. Распакуйте в любую папку
+3. Запустите **`start.bat`**
+
+При первом запуске при необходимости скачаются portable Python и ffmpeg (нужен интернет). Дальше — иконка в трее и браузер на http://127.0.0.1:8080/  
+iPad в той же Wi‑Fi: `http://IP_ПК:8080/`
+
+- UI Lite: порт `8080`
+- TorrServer MatriX: порт `8092`
 
 ## Благодарность
 
 TorrServer создан **YouROK**: https://github.com/YouROK/TorrServer
 
-## Что нужно
+## Что в комплекте
 
-- Python 3
-- `TorrServer-windows-amd64.exe` (есть в репозитории)
-- ffmpeg (ставится автоматически в `tools/ffmpeg` при первом запуске)
+- `TorrServer-windows-amd64.exe`, `TorrServerGUI.exe`
+- `films.pyw`, `start.bat`, папка `ipad/`
 
-## Что не в git
-
-Личные данные и тяжёлый мусор не выкладываются: торренты, `hls_cache`, базы (`config.db`), логи, Prowlarr, `tools/ffmpeg`.
+ffmpeg и portable Python при отсутствии ставятся сами в `tools/`.  
+В git не кладутся: торренты, кэш HLS, личные базы, логи.

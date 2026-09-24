@@ -13,6 +13,7 @@ ts-start.log
 config.db
 settings.json
 viewed.json
+app.json
 *.db
 *.db-journal
 

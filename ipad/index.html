@@ -437,7 +437,7 @@
       <p>Lite для iPad. Добавление magnet/.torrent — на вкладке «Торренты».</p>
       <button type="button" id="settingsRefreshBtn">Обновить список торрентов</button>
       <button type="button" class="secondary" id="settingsFocusAdd">К форме добавления</button>
-      <a class="btn secondary" href="http://192.168.31.231:8092/">Открыть полный MatriX (:8092)</a>
+      <a class="btn secondary" href="#" id="matrixLinkSettings">Открыть полный MatriX (:8092)</a>
       <h2 style="margin-top:18px">HLS кэш</h2>
       <p id="hlsCacheInfo">Размер: …</p>
       <button type="button" class="secondary" id="hlsCacheRefreshBtn">Обновить размер</button>
@@ -452,7 +452,7 @@
       <p><b>TorrServer Lite</b> — упрощённый интерфейс для iPad на порту 8080.</p>
       <p>Полный веб-интерфейс MatriX с тем же сервером: порт <b>8092</b>.</p>
       <p id="aboutVer">…</p>
-      <a class="btn" href="http://192.168.31.231:8092/">MatriX :8092</a>
+      <a class="btn" href="#" id="matrixLinkAbout">MatriX :8092</a>
       <div class="donateBlock">
         <h2>Благодарность</h2>
         <p>TorrServer и MatriX — проект <b>YouROK</b>.</p>
@@ -1925,9 +1925,17 @@
     if (!el) return;
     el.innerHTML = 'Торрентов: <b>' + (listCache ? listCache.length : 0) + '</b><br>' +
       'Lite: http://' + location.host + '/<br>' +
-      'MatriX: http://' + (location.hostname || '192.168.31.231') + ':8092/';
+      'MatriX: http://' + (location.hostname || '127.0.0.1') + ':8092/';
     refreshHlsCacheInfo();
   }
+
+  function wireMatrixLinks() {
+    var host = location.hostname || '127.0.0.1';
+    var u = 'http://' + host + ':8092/';
+    if ($('matrixLinkSettings')) $('matrixLinkSettings').href = u;
+    if ($('matrixLinkAbout')) $('matrixLinkAbout').href = u;
+  }
+  wireMatrixLinks();
 
   function refreshHlsCacheInfo() {
     var el = $('hlsCacheInfo');
