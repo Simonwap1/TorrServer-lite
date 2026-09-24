@@ -24,4 +24,3 @@ TorrServer создан **YouROK**: https://github.com/YouROK/TorrServer
 - `films.pyw`, `start.bat`, папка `ipad/`
 
 ffmpeg и portable Python при отсутствии ставятся сами в `tools/`.  
-В git не кладутся: торренты, кэш HLS, личные базы, логи.
