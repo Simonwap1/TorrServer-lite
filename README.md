@@ -28,10 +28,10 @@ git init -b main
 git add .
 git status
 git commit -m "TorrServer Lite for iPad"
-git remote add origin https://github.com/Simonwap1/torrserver-lite.git
+git remote add origin https://github.com/Simonwap1/TorrServer-lite.git
 git push -u origin main
 ```
 
 В `.gitignore` уже исключены торренты, exe, кэш HLS, Prowlarr и личные данные — в репозиторий уйдёт в основном код.
 
-Репозиторий: https://github.com/Simonwap1/torrserver-lite
+Репозиторий: https://github.com/Simonwap1/TorrServer-lite
