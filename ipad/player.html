@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Смотреть</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family: Helvetica, Arial, sans-serif; }
+    .wrap { padding: 12px; }
+    video {
+      width: 100%;
+      max-height: 55vh;
+      background: #111;
+      display: block;
+    }
+    .msg { padding: 12px 0; font-size: 15px; color: #ccc; line-height: 1.4; }
+    .row { margin-top: 8px; }
+    .btn {
+      display: block;
+      background: #0a7;
+      color: #fff;
+      text-decoration: none;
+      padding: 14px 12px;
+      border-radius: 8px;
+      margin: 0 0 10px 0;
+      font-size: 17px;
+      text-align: center;
+    }
+    .btn.sec { background: #444; }
+    .btn.big { background: #0a7; font-size: 18px; padding: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <video id="v" controls playsinline webkit-playsinline preload="auto"></video>
+    <div class="msg" id="msg">Готовим поток… 15–40 сек. На этом iPad надёжнее VLC.</div>
+    <div class="row">
+      <a class="btn big" id="vlc" href="#">Открыть в VLC (рекомендуется)</a>
+      <a class="btn sec" id="safariBtn" href="#">Попробовать Safari ещё раз</a>
+      <a class="btn sec" href="/">Назад</a>
+    </div>
+  </div>
+  <script>
+(function () {
+  function q(name) {
+    var m = location.search.match(new RegExp('[?&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
+  }
+  function setMsg(t) { document.getElementById('msg').innerHTML = t; }
+
+  var hash = q('hash');
+  var index = q('index') || '1';
+  var h = q('h') || '480';
+  var video = document.getElementById('v');
+
+  if (!hash) {
+    setMsg('Нет hash');
+    return;
+  }
+
+  var vlcSrc = '/transcode/stream.ts?hash=' + encodeURIComponent(hash) +
+    '&index=' + encodeURIComponent(index) + '&h=' + encodeURIComponent(h);
+  var absVlc = location.protocol + '//' + location.host + vlcSrc;
+  var vlcLink = 'vlc://' + absVlc;
+  document.getElementById('vlc').href = vlcLink;
+
+  function openVlc() {
+    location.href = vlcLink;
+  }
+
+  function startSafari() {
+    setMsg('Готовим HLS с начала фильма… Подождите.');
+    var url = '/hls/ready?hash=' + encodeURIComponent(hash) +
+      '&index=' + encodeURIComponent(index) + '&h=' + encodeURIComponent(h) +
+      '&t=' + String(new Date().getTime());
+
+    var req = new XMLHttpRequest();
+    req.open('GET', url, true);
+    req.timeout = 120000;
+    req.onreadystatechange = function () {
+      if (req.readyState !== 4) return;
+      if (req.status < 200 || req.status >= 300) {
+        setMsg('Safari/HLS не готов. Нажмите «Открыть в VLC».');
+        return;
+      }
+      var data = null;
+      try { data = JSON.parse(req.responseText); } catch (e) {}
+      if (!data || !data.ok || !data.url) {
+        setMsg('Ошибка HLS. Откройте в VLC.');
+        return;
+      }
+      setMsg('Запуск в Safari… Если чёрный экран — VLC.');
+      video.src = data.url;
+      try { video.load(); } catch (e1) {}
+      var p = video.play();
+      if (p && typeof p.then === 'function') {
+        p.then(function () {
+          setMsg('Идёт воспроизведение в Safari');
+        }).catch(function () {
+          setMsg('Нажмите ▶ или откройте VLC.');
+        });
+      }
+    };
+    req.onerror = function () { setMsg('Сеть. Откройте VLC.'); };
+    req.ontimeout = function () { setMsg('Долго нет ответа. Откройте VLC.'); };
+    req.send(null);
+  }
+
+  document.getElementById('safariBtn').onclick = function (e) {
+    if (e && e.preventDefault) e.preventDefault();
+    startSafari();
+    return false;
+  };
+
+  video.addEventListener('error', function () {
+    setMsg('Safari не смог открыть поток. Нажмите «Открыть в VLC».');
+  });
+  video.addEventListener('playing', function () {
+    setMsg('Идёт воспроизведение в Safari (H.264 ' + h + 'p)');
+  });
+
+  // На старом iPad сразу предлагаем VLC, HLS пробуем фоном
+  setTimeout(startSafari, 300);
+})();
+  </script>
+</body>
+</html>

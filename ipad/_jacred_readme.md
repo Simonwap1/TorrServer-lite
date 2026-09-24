@@ -1,0 +1,1428 @@
+# jacred-go
+
+A multi-tracker torrent aggregator in a single Go binary. 23 parsers cover 22
+Russian and Ukrainian trackers, feeding one flat-file database behind search,
+sync and stats APIs, with a Jackett-compatible endpoint for clients that expect
+one.
+
+Three things it does that a plain indexer proxy does not:
+
+- **Cloudflare bypass is part of the program.** An embedded flaresolverr-go
+  drives a fingerprint-patched Chromium that clears managed challenges, and
+  per-domain detection is automatic — a tracker that goes behind Cloudflare
+  starts being routed through the browser without a config change.
+- **One binary, and it works offline.** The web UI, every parser and the
+  database engine are compiled in; there is no Node, no Python and no companion
+  service at runtime. The admin UI loads nothing from a CDN, so it renders on a
+  box with no outbound internet. The only thing fetched on demand is the patched
+  Chromium, and only for trackers that need it.
+- **Parser health is visible.** `/trackers` shows every parser's last run, the
+  route it actually took and whether its session still authorizes — so a tracker
+  that quietly stopped returning records shows up without anyone reading a log.
+
+Ported from the C# project [jacred](https://github.com/jacred-fdb/jacred) and
+still compatible with it, but no longer a translation of it: the Cloudflare
+stack, the authorization handling and the parser dashboard are specific to this
+port.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Web UI](#web-ui)
+- [Parser Endpoints](#parser-endpoints)
+- [Search API](#search-api)
+- [Stats API](#stats-api)
+- [Sync API](#sync-api)
+- [Database Admin Endpoints](#database-admin-endpoints)
+- [Dev/Maintenance Endpoints](#devmaintenance-endpoints)
+- [Config Hot-Reload](#config-hot-reload)
+- [Search Result Caching](#search-result-caching)
+- [FDB Audit Log](#fdb-audit-log)
+- [Parser Logging](#parser-logging)
+- [Cron Examples](#cron-examples)
+- [Database Structure](#database-structure)
+- [Releases (CI)](#releases-ci)
+
+---
+
+## Quick Start
+
+```bash
+# Build for current platform
+go build -o ./Dist/jacred ./cmd
+./Dist/jacred
+# Listens on :9117 by default
+
+# Health check
+curl http://127.0.0.1:9117/health
+
+# Parse first page of rutor
+curl http://127.0.0.1:9117/cron/rutor/parse
+
+# Search
+curl "http://127.0.0.1:9117/api/v1.0/torrents?search=Interstellar"
+```
+
+## Build for all platforms
+
+```bash
+chmod +x build_all.sh
+./build_all.sh
+```
+
+Builds binaries for all supported platforms into `Dist/` and creates a release archive:
+
+```
+Dist/
+  jacred-linux-amd64
+  jacred-linux-arm64
+  jacred-linux-arm
+  jacred-linux-386
+  jacred-darwin-amd64
+  jacred-darwin-arm64
+  jacred-windows-amd64.exe
+  jacred-windows-arm64.exe
+  jacred-windows-386.exe
+  jacred-freebsd-amd64
+  jacred-freebsd-arm64
+
+jacred-{version}-{gitSHA}.tar.gz   ← binaries + init.yaml.example
+                                     (the web UI is embedded into each binary via //go:embed)
+```
+
+Requires Go 1.21+. All binaries are statically linked (`CGO_ENABLED=0`), no external dependencies.
+
+---
+
+## Configuration
+
+Configuration file: `init.yaml` in working directory.
+
+### Global Settings
+
+```yaml
+listenip: "any"              # IP to bind ("any" = 0.0.0.0)
+listenport: 9117             # Listening port
+apikey: ""                   # API key required for /api/v1.0/* (empty = no auth)
+devkey: ""                   # Key for dev endpoints (empty = local IP only)
+log: true                    # Enable logging
+logParsers: false            # Global gate for per-tracker parser logs (both must be true)
+logFdb: false                # FDB audit log: JSON Lines per bucket change
+logFdbRetentionDays: 7       # Delete FDB log files older than N days
+logFdbMaxSizeMb: 0           # Max total FDB log size in MB (0 = unlimited)
+logFdbMaxFiles: 0            # Max number of FDB log files (0 = unlimited)
+fdbPathLevels: 2             # Directory nesting depth for bucket files
+mergeduplicates: true        # Merge duplicate torrents from different trackers
+mergenumduplicates: true     # Merge numeric ID variations
+openstats: true              # Enable /stats/* endpoints (no auth)
+opensync: true               # Enable /sync/fdb/torrents (V2 protocol, no auth)
+opensync_v1: false           # Enable /sync/torrents (V1 protocol, no auth)
+web: true                    # Serve web UI (index.html, stats.html, settings.html)
+timeStatsUpdate: 90          # Rebuild stats.json every N minutes
+memlimit: 0                  # Hard cap on Go heap in MB (0 = no limit)
+gcpercent: 50                # GC frequency: lower = more GC, less peak RAM (default 50)
+```
+
+### Memory Limits
+
+Control Go runtime memory usage. Essential on VPS with limited RAM.
+
+```yaml
+memlimit: 1500   # Hard cap on Go heap in MB; GC becomes very aggressive near the limit
+gcpercent: 50    # Go's GOGC knob: 50 = GC at +50% heap growth (default 50, Go default is 100)
+```
+
+**Recommended settings by RAM:**
+
+| VPS RAM | `memlimit` | `gcpercent` | `evercache.maxOpenWriteTask` |
+|---------|-----------|-------------|------------------------------|
+| 1 GB    | `700`     | `20`        | `200`                        |
+| 2 GB    | `1500`    | `30`        | `300`                        |
+| 4 GB+   | `0`       | `50`        | `500`                        |
+
+`memlimit: 0` disables the hard cap (Go default behaviour).
+
+### CloudFlare Bypass (flaresolverr-go)
+
+For CloudFlare-gated trackers the system uses an embedded **flaresolverr-go** solver — no external Docker service required. Which trackers those are is decided at runtime by auto-detection (see below), not by this list; the domains currently hinted in `init.yaml` are megapeer, nnmclub, bitru, toloka, mazepa, selezen, anistar and anifilm, and rutracker is CF-gated too but left to auto-detect.
+
+How it works:
+
+1. The first request to a CF-gated domain spawns a real browser (CloakBrowser via chromedriver by default; Camoufox via geckodriver and stock Chrome via chromedriver are alternatives) on a virtual Xvfb display, lets it pass the CF managed challenge, and extracts the resulting `cf_clearance` cookies and User-Agent.
+2. Solved cookies are cached in memory for 60 minutes per domain and persisted to `Data/cookie/<domain>.json`, so quick restarts reuse them. That file holds both halves of a domain's session — the flare cookie/UA and the tracker login cookie.
+3. Subsequent requests for the same domain replay those cookies over the normal HTTP path (fast path). Only on a fresh CF challenge (403 or interstitial markers in the body) is the browser invoked again.
+4. Idle browser sessions are reaped after 5 minutes of inactivity to free RAM (~800 MB per browser process).
+
+The fast path is **not** `net/http`: it uses [bogdanfinn/tls-client](https://github.com/bogdanfinn/tls-client) with a Chrome TLS fingerprint. CloudFlare fingerprints the TLS ClientHello (JA3/JA4) and the HTTP/2 header order, so a Go handshake replaying a cookie that a real Chrome earned is a visible mismatch — the cookie is valid and the request still gets challenged. This applies to every CF tracker, not just the hard ones.
+
+```yaml
+flaresolverr_go:
+  headless: false               # false = visible (recommended); needs Xvfb on servers
+  browser_backend: cloakbrowser # cloakbrowser (patched stealth Chromium, recommended) | geckodriver (Camoufox) | chromedriver (Chrome for Testing)
+  browser_path: ""              # Browser binary. Ignored with cloakbrowser (it manages its own). Empty + geckodriver = auto-download Camoufox (~680 MB, one-time) into ~/.cache. Empty + chromedriver = system Chrome.
+  driver_path: ""               # Custom geckodriver/chromedriver path. Empty = library auto-downloads a matching driver.
+  chrome_version: ""            # Pin Chrome for Testing to a major (e.g. "146") — only used with browser_backend: chromedriver.
+```
+
+`cloakbrowser` auto-downloads [CloakBrowser](https://github.com/CloakHQ/CloakBrowser) (~217 MB, one-time) into `~/.cache/jacred/cloakbrowser`, chromedriver bundled in the same archive so the majors always match. Only the v146 line is a free public release — v148+ are Pro-only — so the version is pinned to v146 and the free build ages as CF detection evolves.
+
+Two settings here are not cosmetic, both measured on rutracker:
+
+- **Keep `headless: false`.** Headed clears the managed challenge in about 7 seconds with no click. Headless gets served the *interactive* Turnstile widget instead and loops on it indefinitely.
+- **`cloakbrowser` is the only backend that clears rutracker.** Camoufox and stock Chrome both get the interactive widget and never pass. They remain fine for easier CF sites.
+
+Requires `Xvfb` on headless servers (`apt install xvfb`). jacred starts its own Xvfb instance on `:99-:119` if `DISPLAY` is unset.
+
+#### Auto-detection
+
+CloudFlare detection is automatic — `fetchmode` in `init.yaml` is now an optional hint, not a requirement. When any parser's standard request returns a CF interstitial page (markers like `<title>Just a moment`, `cf-browser-verification`, `window._cf_chl_opt`), the Fetcher:
+
+1. Logs `cf-auto: detected CloudFlare on <domain> — future requests will use flaresolverr`.
+2. Flags the domain in an in-memory + on-disk registry (`Data/temp/cf_auto.json`).
+3. Transparently retries the same request through flaresolverr-go in the same call — the caller gets the real response.
+4. Routes every subsequent request for that domain through flaresolverr automatically (skipping the wasted standard roundtrip).
+
+Setting `fetchmode: "flaresolverr"` explicitly still works; it just saves the very first wasted request. POST requests are auto-promoted too: when CF rejects a POST, the original body never reached the upstream API, so the retry through flaresolverr (which obtains `cf_clearance` and re-issues the POST over the normal HTTP path with the browser's UA) is safe.
+
+Registry entries persist across restarts and age out after 30 days (any domain that's gone quiet that long is rechecked from scratch). To inspect or clear the registry manually, use `/admin/cf-domains` (see [Database Admin Endpoints](#database-admin-endpoints)).
+
+```yaml
+Megapeer:
+  fetchmode: "flaresolverr"   # optional: skip the first detection roundtrip for known CF sites
+  host: "https://megapeer.vip"
+```
+
+If a previously-flagged site stops using CF, either wait 30 days or `curl -X DELETE 'http://127.0.0.1:9117/admin/cf-domains?domain=megapeer.vip'`. A circuit breaker also puts a domain into a 3-minute cooldown after a flaresolverr solve failure to prevent retry storms.
+
+### Evercache (In-Memory Bucket Cache)
+
+Keeps recently opened buckets in RAM to reduce disk reads on repeated searches.
+The cache is hard-capped at `maxOpenWriteTask` entries; when full the oldest
+`dropCacheTake` entries are evicted immediately. Stale entries (older than
+`validHour`) are swept every 10 minutes by a background goroutine.
+
+```yaml
+evercache:
+  enable: true               # Enable in-memory caching of buckets
+  validHour: 1               # Cache TTL in hours; entries older than this are evicted
+  maxOpenWriteTask: 500      # Max buckets held in memory (hard cap)
+  dropCacheTake: 100         # How many to evict when the cap is hit
+```
+
+### Sync (Multi-Instance)
+
+```yaml
+syncapi: "http://other-instance:9117"   # URL of remote jacred to sync from
+timeSync: 60                            # Sync interval in seconds
+synctrackers:                           # Sync only these trackers (empty = all)
+  - "Rutor"
+  - "Kinozal"
+disable_trackers:                       # Never sync these trackers
+  - "Mazepa"
+syncsport: true                         # Sync sport torrents
+syncspidr: true                         # Enable spider (metadata-only) sync
+timeSyncSpidr: 60                       # Spider sync interval in seconds
+```
+
+### Per-Tracker Settings
+
+Each tracker section is optional — defaults are used if omitted.
+
+```yaml
+Kinozal:
+  host: "https://kinozal.guru"   # Override default host; also what stored record URLs are keyed by
+  alias: ""                      # Mirror to send requests to, while host stays the record key.
+                                 # Honoured by kinozal, korsars, animelayer, torrentby, rutracker.
+  cookie: "uid=abc123; pass=..." # Session cookie (required for login-only trackers)
+  useragent: ""                  # Override the UA on standard-mode requests. Required when cookie
+                                 # holds a cf_clearance copied from a browser: CF binds that cookie
+                                 # to the exact UA that earned it.
+  login:
+    u: "username"
+    p: "password"
+  parseDelay: 7000              # Delay between category/page requests in ms — the only pacing knob
+  fetchmode: ""                 # "flaresolverr" skips the first CF-detection roundtrip (a hint only)
+  insecureSkipVerify: false     # Accept invalid/expired TLS certificates
+  log: false                    # Log this tracker's requests
+  useproxy: false               # Route requests through globalproxy
+```
+
+**Default hosts:**
+
+| Tracker | Default Host |
+|---------|-------------|
+| Rutor | `https://rutor.is` |
+| Megapeer | `https://megapeer.vip` |
+| TorrentBy | `https://torrent.by` |
+| Kinozal | `https://kinozal.guru` |
+| NNMClub | `https://nnmclub.to` |
+| Bitru | `https://bitru.org` |
+| Toloka | `https://toloka.to` |
+| Mazepa | `https://mazepa.to` |
+| Rutracker | `https://rutracker.org` |
+| Selezen | `https://use.selezen.club` |
+| Lostfilm | `https://www.lostfilm.tv` |
+| Animelayer | `https://animelayer.ru` |
+| Anidub | `https://tr.anidub.com` |
+| Aniliberty | `https://aniliberty.top` |
+| Knaben | `https://api.knaben.org` |
+| Anistar | `https://anistar.org` |
+| Anifilm | `https://anifilm.pro` |
+| Leproduction | `https://www.le-production.tv` |
+| Korsars | `https://korsars.pro` |
+| Ultradox | `https://ultradox.onl` |
+| Viruseproject | `https://viruseproject.tv` |
+| Anibelka | `https://anibelka.com` |
+
+### Proxy
+
+```yaml
+globalproxy:
+  - pattern: "\.onion"           # Regex: apply proxy when URL matches
+    list:
+      - "socks5://127.0.0.1:9050"
+      - "http://proxy.example.com:8080"
+    useAuth: false
+    username: ""
+    password: ""
+    BypassOnLocal: true          # Skip proxy for 127.x / 192.168.x / 10.x
+```
+
+---
+
+## Parser Endpoints
+
+All parser endpoints return:
+
+```json
+{
+  "status": "ok",
+  "fetched": 150,
+  "added": 12,
+  "updated": 5,
+  "skipped": 133,
+  "failed": 0
+}
+```
+
+Multi-category parsers also include `"by_category": [...]`.
+
+### Parsing Strategies
+
+There are five distinct parsing strategies across the 21 trackers:
+
+#### 1. Single-page (`page=N`)
+
+Parse exactly one page. Default is page 0 (most recent) for most trackers; Bitru defaults to page 1.
+
+**Trackers:** Rutor, Selezen, Bitru, Kinozal, NNMClub, RuTracker, TorrentBy, Toloka, Korsars, Ultradox, Anibelka
+
+> Note: Rutor, Bitru, Kinozal, NNMClub, RuTracker, TorrentBy, Toloka also support task-based parsing (see §4 below). The `parse?page=N` endpoint is available as a single-page fallback.
+
+```bash
+# Parse the latest page (default)
+curl "http://127.0.0.1:9117/cron/rutor/parse"
+
+# Parse a specific page
+curl "http://127.0.0.1:9117/cron/kinozal/parse?page=3"
+```
+
+#### 2. Multi-page (`maxpage=N` or `limit_page=N`)
+
+Parse N pages starting from the first. `0` means unlimited (all pages).
+
+**Trackers:** Megapeer (`maxpage`, default 1), Animelayer (`maxpage`, default 1), Anistar (`limit_page`, default 0 = all), Leproduction (`limit_page`, default 0 = all), Viruseproject (`limit_page`, default 1; 0 = all)
+
+```bash
+# Megapeer/Animelayer: default = 1 page
+curl "http://127.0.0.1:9117/cron/megapeer/parse"
+
+# Parse up to 5 pages
+curl "http://127.0.0.1:9117/cron/megapeer/parse?maxpage=5"
+
+# Anistar/Leproduction: default = all pages (limit_page=0)
+curl "http://127.0.0.1:9117/cron/anistar/parse"
+
+# Limit to 3 pages
+curl "http://127.0.0.1:9117/cron/anistar/parse?limit_page=3"
+curl "http://127.0.0.1:9117/cron/leproduction/parse?limit_page=3"
+```
+
+#### 3. Page range (`parseFrom=N&parseTo=M`)
+
+Parse pages from N to M inclusive.
+
+**Trackers:** Anidub, Aniliberty, Selezen
+
+```bash
+# Parse pages 1 to 5
+curl "http://127.0.0.1:9117/cron/anidub/parse?parseFrom=1&parseTo=5"
+
+# Parse only page 1 (single page)
+curl "http://127.0.0.1:9117/cron/selezen/parse?parseFrom=1&parseTo=1"
+
+# Aniliberty also returns lastPage in response
+curl "http://127.0.0.1:9117/cron/aniliberty/parse?parseFrom=1&parseTo=3"
+```
+
+#### 4. Task-based (incremental, recommended for large trackers)
+
+For large trackers with hundreds of category pages. Works in three steps:
+
+1. **Discover** all pages by category and year → stores tasks in `Data/{tracker}_tasks.json`
+2. **Parse all** discovered tasks (can be interrupted and resumed)
+3. **Parse latest** — shortcut to parse only the most recent N pages
+
+**Trackers:** Rutor, Selezen, Bitru, Kinozal, NNMClub, RuTracker, TorrentBy, Toloka, Korsars, Ultradox, Anibelka
+
+```bash
+# Step 1: Discover all pages and build task list (run once or periodically)
+curl "http://127.0.0.1:9117/cron/kinozal/updatetasksparse"
+
+# Step 2: Parse all discovered tasks (can take a long time)
+curl "http://127.0.0.1:9117/cron/kinozal/parsealltask"
+curl "http://127.0.0.1:9117/cron/kinozal/parsealltask?force=true"  # ignore "updated today" flag
+
+# Or: Parse only the latest N pages (quick daily update)
+curl "http://127.0.0.1:9117/cron/kinozal/parselatest"           # default pages=100 (kinozal); others default pages=5
+curl "http://127.0.0.1:9117/cron/kinozal/parselatest?pages=10"
+
+# Fallback: parse a single known page
+curl "http://127.0.0.1:9117/cron/kinozal/parse?page=0"
+```
+
+Task state is persisted — interrupted `parsealltask` resumes from where it stopped.
+
+#### 5. Full vs. incremental (`fullparse=true/false`)
+
+**Tracker:** Anifilm only
+
+```bash
+# Incremental: only new/updated since last run (default)
+curl "http://127.0.0.1:9117/cron/anifilm/parse"
+curl "http://127.0.0.1:9117/cron/anifilm/parse?fullparse=false"
+
+# Full re-parse: all pages
+curl "http://127.0.0.1:9117/cron/anifilm/parse?fullparse=true"
+```
+
+---
+
+### Per-Tracker Parse Reference
+
+#### Rutor
+```
+GET /cron/rutor/parse
+  page=N   (default 0) — parse page N across all 11 categories
+
+GET /cron/rutor/updatetasksparse      — discover all pages per category
+GET /cron/rutor/parsealltask          — parse all discovered tasks
+GET /cron/rutor/parselatest
+  pages=N   (default 5) — parse latest N pages per category
+```
+Parses all 11 categories: movies, music, serials, documentaries, cartoons, anime, sport, Ukrainian content.
+Without parameters `parse` fetches one page (page 0) from all categories simultaneously.
+
+#### Megapeer
+```
+GET /cron/megapeer/parse
+  maxpage=N   (default 1) — parse up to N pages
+```
+
+#### Anidub
+```
+GET /cron/anidub/parse
+  parseFrom=N   (default 0) — page range start
+  parseTo=M     (default 0) — page range end
+```
+Without parameters: parses only page 0.
+
+#### Aniliberty
+```
+GET /cron/aniliberty/parse
+  parseFrom=N   (default 0) — page range start
+  parseTo=M     (default 0) — page range end
+
+Response includes: { ..., "lastPage": 42 }
+```
+Without parameters: parses only page 0.
+
+#### Animelayer
+```
+GET /cron/animelayer/parse
+  maxpage=N   (default 1)
+```
+
+#### Anistar
+```
+GET /cron/anistar/parse
+  limit_page=N   (default 0 = parse all pages)
+  limitPage=N    (alias)
+```
+
+#### Anifilm
+```
+GET /cron/anifilm/parse
+  fullparse=false   (default) — only new/updated since last run
+  fullparse=true    — re-parse all pages
+```
+
+#### Anibelka
+```
+GET /cron/anibelka/parse
+  page=N   (default 0) — parse single page
+
+GET /cron/anibelka/updatetasksparse
+GET /cron/anibelka/parsealltask
+GET /cron/anibelka/parselatest
+  pages=N   (default 1)
+```
+Anime-only phpBB tracker, no login. Five forums under its "Скачать аниме" menu (32 Универсальные, 33 С озвучкой, 34 С субтитрами, 36 Полнометражки, 37 PSP), 15 topics per listing page, pagination via `?start=N`. There are no magnets in the markup: each topic carries exactly one `.torrent` attachment, so the parser downloads it and derives the magnet from the info dict — two requests per topic, hence a conservative `parseDelay`.
+
+**Do not add credentials for this tracker.** A logged-in `.torrent` download embeds the account's personal passkey in the announce URL, and that passkey would then be copied into every magnet this instance serves over the search API and `/sync`. Anonymous downloads produce the same info hash and login grants no extra topics.
+
+#### Bitru
+```
+GET /cron/bitru/parse
+  page=N   (default 1) — parse single page
+
+GET /cron/bitru/updatetasksparse      — discover all category pages
+GET /cron/bitru/parsealltask          — parse all discovered tasks
+GET /cron/bitru/parselatest
+  pages=N   (default 5) — parse latest N pages only
+```
+
+#### BitruAPI
+```
+GET /cron/bitruapi/parse
+  limit=N   (default 100) — number of recent items to fetch via API
+
+GET /cron/bitruapi/parsefromdate
+  lastnewtor=YYYY-MM-DD   — fetch items newer than this date
+  limit=N                  (default 100)
+```
+
+#### Kinozal
+```
+GET /cron/kinozal/parse
+  page=N   (default 0) — parse single page
+
+GET /cron/kinozal/updatetasksparse
+GET /cron/kinozal/parsealltask
+  force=true   — re-parse all tasks even if marked updated today
+
+GET /cron/kinozal/parselatest
+  pages=N   (default 100, max 100) — scan unfiltered pages 0..N-1 per category, no year filter
+```
+Login required for browsing, not just for magnets: every path except `/login.php`, `/rss.xml` and `/robots.txt` redirects to `login.php?m=5`. The host moved from `kinozal.tv` (DNS gone) to `kinozal.guru`, and the site rebranded "Кинозал.ТВ" to "Кинозал.GURU" at the same time. Fronted by CloudFlare but it does not challenge, so no `fetchmode` hint is needed.
+
+#### Knaben
+```
+GET /cron/knaben/parse
+  from=N            (default 0) — offset in results
+  size=N            (default 300) — results per page
+  pages=N           (default 1) — number of pages to fetch
+  query=string      — search query
+  hours=N           (0 = ignore time filter) — only items from last N hours
+  orderBy=string    (default "date") — sort order
+  categories=a,b,c  — comma-separated category filters
+```
+
+#### Leproduction
+```
+GET /cron/leproduction/parse
+  limit_page=N   (default 0 = parse all pages)
+```
+
+#### Lostfilm
+```
+GET /cron/lostfilm/parse            — parse main catalog (latest releases)
+
+GET /cron/lostfilm/parsepages
+  pageFrom=N   (default 1)
+  pageTo=N     (default 1)
+
+GET /cron/lostfilm/parseseasonpacks
+  series=SeriesName   — parse all season packs for a specific series
+
+GET /cron/lostfilm/verifypage
+  series=SeriesName   — verify parsed data for a series
+
+GET /cron/lostfilm/stats            — Lostfilm-specific stats
+```
+
+#### Mazepa
+```
+GET /cron/mazepa/parse   — no parameters, walks its category list
+
+GET /cron/mazepa/updatetasksparse
+GET /cron/mazepa/parsealltask
+GET /cron/mazepa/parselatest
+  pages=N   (default 5)
+```
+Login required (`Mazepa.login.u/p`). The site moved to SEO paths in Jul 2026 and dropped magnets from its listings; they are now resolved from each row's `dl.php` attachment, which is served to logged-in users only — anonymous listings carry no `dl.php` links at all, so without credentials every row is discarded and the run reports `fetched=0` with no error. Magnets are built **without** announce URLs on purpose: mazepa stamps the account's passkey into every attachment it serves, and magnets get republished through the search API, torznab and `/sync`. Already-stored magnets are reused, so only genuinely new rows cost a `.torrent` download.
+
+#### NNMClub
+```
+GET /cron/nnmclub/parse
+  page=N   (default 0)
+
+GET /cron/nnmclub/updatetasksparse
+GET /cron/nnmclub/parsealltask
+GET /cron/nnmclub/parselatest
+  pages=N   (default 5)
+```
+
+#### RuTracker
+```
+GET /cron/rutracker/parse
+  page=N   (default 0)
+
+GET /cron/rutracker/updatetasksparse
+GET /cron/rutracker/parsealltask
+GET /cron/rutracker/parselatest
+  pages=N   (default 5)
+```
+Login required (`Rutracker.login.u/p`). CF-gated since Jul 2026: a managed challenge covers every forum path except `/forum/index.php`, login included. No `fetchmode` hint is set — auto-detect promotes the domain on the first challenge — but clearing it in practice needs `browser_backend: cloakbrowser` with `headless: false`. A challenged run reports `status: "cf-challenge"` with HTTP 500 rather than a silent empty result.
+
+#### Korsars
+```
+GET /cron/korsars/parse
+  page=N   (default 0)
+
+GET /cron/korsars/updatetasksparse
+GET /cron/korsars/parsealltask
+GET /cron/korsars/parselatest
+  pages=N   (default 5)
+```
+phpBB-mod tracker (films / series / cartoons), 24 forum IDs hardcoded. Login required (`Korsars.login.u/p`); magnets are inline in the listing so no extra `dl.php` round-trip per torrent.
+
+#### Ultradox
+```
+GET /cron/ultradox/parse
+  page=N   (default 0)
+
+GET /cron/ultradox/updatetasksparse
+GET /cron/ultradox/parsealltask
+GET /cron/ultradox/parselatest
+  pages=N   (default 5)
+```
+Listing-then-detail tracker, no login. Six sections: `serial-hd`, `hd`, `rufilm`, `camrip`, `webrips`, `anime`. Listing rows expose placeholder magnets with empty btih, so the parser follows each title link to the detail page where every quality variant has a full info-hash. One torrent record is stored per quality variant. Sid/pir are placeholder values (1) — the site doesn't expose peer counts. The host moved from `ultradox.top` (dead) to `ultradox.onl`, which 307s to a numbered mirror such as `021.ultadox.space` — follow the redirect, don't hardcode the mirror. The origin answers `503` unless the `Referer` is a search engine (google/yandex pass; its own origin does not); this is not a CF challenge and flaresolverr does not help, so the parser sends the required browser headers itself and nothing is needed in config. TLS certificates are valid again, so `insecureSkipVerify` is off.
+
+#### Viruseproject
+```
+GET /cron/viruseproject/parse
+  limit_page=N   (default 1; 0 = unlimited, scan all category pages)
+```
+Listing-then-detail tracker, no login. K2/Joomla layout. Categories: `serials`, `movies`, `documentary`, `cartoons`, `reality-show`. Pagination via `?start=N` (step 10). Each detail page exposes one or more `.torrent` attachments per quality variant — the parser downloads the file and computes the magnet/infohash. **One record per quality variant**. Title format: `<itemTitle>[ (year)] [<videoQuality>] [<resolution>]` — year is appended only when missing from itemTitle, resolution defaults to `[400p]` when not parseable from the .torrent filename, `<videoQuality>` comes from the "Качество видео" extra field (`WEBRip`, `WEB-DLRip`, `PDTVRip`, `DVDRip`, …). Date stored from the page header (`itemDateCreated`).
+
+#### Selezen
+```
+GET /cron/selezen/parse
+  parseFrom=N   (default 0) — page range start
+  parseTo=M     (default 0) — page range end
+
+GET /cron/selezen/updatetasksparse      — discover all pages
+GET /cron/selezen/parsealltask          — parse all discovered tasks
+GET /cron/selezen/parselatest
+  pages=N   (default 5) — parse latest N pages only
+```
+Without parameters `parse` parses only page 1.
+
+#### Toloka
+```
+GET /cron/toloka/parse
+  page=N   (default 0)
+
+GET /cron/toloka/updatetasksparse
+GET /cron/toloka/parsealltask
+GET /cron/toloka/parselatest
+  pages=N   (default 5)
+```
+
+#### TorrentBy
+```
+GET /cron/torrentby/parse
+  page=N   (default 0)
+
+GET /cron/torrentby/updatetasksparse
+GET /cron/torrentby/parsealltask
+GET /cron/torrentby/parselatest
+  pages=N   (default 5)
+```
+
+---
+
+## Search API
+
+### `GET /api/v1.0/torrents`
+
+Full-text torrent search.
+
+**Query Parameters:**
+
+| Parameter | Aliases | Type | Description |
+|-----------|---------|------|-------------|
+| `search` | `q` | string | Full-text search in title and name fields |
+| `altname` | `altName` | string | Search in original/alternative name |
+| `exact` | — | bool | Exact match instead of fuzzy |
+| `type` | — | string | Content type: `фильм`, `сериал`, `аниме`, `музыка`, etc. |
+| `tracker` | `trackerName` | string | Filter by tracker name (e.g. `Kinozal`) |
+| `voice` | `voices` | string | Filter by dubbing studio or voice |
+| `videotype` | `videoType` | string | Video format filter (e.g. `hdr`, `sdr`) |
+| `relased` | `released` | int | Release year (e.g. `2023`) |
+| `quality` | — | int | Quality code: `480`, `720`, `1080`, `2160` |
+| `season` | — | int | Season number |
+| `sort` | — | string | Sort order: `date`, `size`, `sid` |
+
+```bash
+# Basic search
+curl "http://127.0.0.1:9117/api/v1.0/torrents?search=Interstellar"
+
+# Filter by tracker and quality
+curl "http://127.0.0.1:9117/api/v1.0/torrents?search=Dune&tracker=Kinozal&quality=1080"
+
+# Anime by season
+curl "http://127.0.0.1:9117/api/v1.0/torrents?search=Naruto&type=аниме&season=5"
+
+# Exact title match
+curl "http://127.0.0.1:9117/api/v1.0/torrents?search=Inception&exact=true"
+```
+
+**Response:**
+
+```json
+[
+  {
+    "tracker": "Kinozal",
+    "url": "https://kinozal.guru/details.php?id=123456",
+    "title": "Дюна / Dune (2021) BDRip 1080p",
+    "size": 15032385536,
+    "sizeName": "14.0 GB",
+    "createTime": "2021-11-15 12:30:00",
+    "updateTime": "2021-11-15 12:30:00",
+    "sid": 350,
+    "pir": 12,
+    "magnet": "magnet:?xt=urn:btih:...",
+    "name": "дюна",
+    "originalname": "dune",
+    "relased": 2021,
+    "videotype": "sdr",
+    "quality": 1080,
+    "voices": "Дублированный",
+    "seasons": "",
+    "types": ["фильм", "зарубежный"]
+  }
+]
+```
+
+### `GET /api/v1.0/qualitys`
+
+Paginated listing of quality metadata.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `name` | — | Filter by name |
+| `originalname` / `originalName` | — | Filter by original name |
+| `type` | — | Filter by type |
+| `page` | `1` | Page number |
+| `take` | `1000` | Items per page |
+
+### `GET /api/v2.0/indexers/[indexer]/results`
+
+Jackett-compatible API for use with Sonarr, Radarr, etc.
+
+| Parameter | Aliases | Description |
+|-----------|---------|-------------|
+| `query` | `q` | Search query |
+| `title` | — | Title to match |
+| `title_original` | — | Original title |
+| `year` | — | Release year |
+| `is_serial` | — | `1` for series, `0` for movies |
+| `category` | — | Category prefix: `mov_`, `tv_`, `anime_`, etc. |
+| `apikey` | `apiKey` | API key (if configured) |
+
+```bash
+curl "http://127.0.0.1:9117/api/v2.0/indexers/jacred/results?q=Dune&year=2021"
+```
+
+Response: `{ "Results": [...], "jacred": true }`
+
+### `GET /api/v1.0/conf`
+
+Validate API key.
+
+```bash
+curl "http://127.0.0.1:9117/api/v1.0/conf?apikey=your-key"
+# Response: {"apikey": true}
+```
+
+---
+
+## Stats API
+
+Stats endpoints are open (no API key required) when `openstats: true`.
+
+### `GET /stats/refresh`
+
+Refresh `Data/temp/stats.json`
+
+### `GET /stats/torrents`
+
+Returns pre-computed stats from `Data/temp/stats.json` (rebuilt every `timeStatsUpdate` seconds).
+
+| Parameter | Aliases | Default | Description |
+|-----------|---------|---------|-------------|
+| `trackerName` | — | — | If set: compute on-demand for this tracker |
+| `newtoday` | `newToday` | `0` | `1` = only torrents added today |
+| `updatedtoday` | `updatedToday` | `0` | `1` = only torrents updated today |
+| `limit` | `take` | `200` | Max items to return |
+
+```bash
+# Full stats (from cache)
+curl "http://127.0.0.1:9117/stats/torrents"
+
+# Today's new torrents from Kinozal
+curl "http://127.0.0.1:9117/stats/torrents?trackerName=Kinozal&newtoday=1"
+```
+
+### `GET /stats/trackers`
+
+Per-tracker statistics summary.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `newtoday` / `newToday` | `0` | Filter to today's new torrents |
+| `updatedtoday` / `updatedToday` | `0` | Filter to today's updated torrents |
+| `limit` / `take` | `200` | Max items |
+
+```bash
+curl "http://127.0.0.1:9117/stats/trackers"
+curl "http://127.0.0.1:9117/stats/trackers?newtoday=1&limit=50"
+```
+
+### `GET /stats/trackers/{trackerName}`
+
+Stats for a specific tracker.
+
+```bash
+curl "http://127.0.0.1:9117/stats/trackers/Rutor"
+curl "http://127.0.0.1:9117/stats/trackers/Rutor?newtoday=1"
+```
+
+### `GET /stats/trackers/{trackerName}/new`
+
+Torrents added today from the specified tracker.
+
+```bash
+curl "http://127.0.0.1:9117/stats/trackers/Kinozal/new?limit=100"
+```
+
+### `GET /stats/trackers/{trackerName}/updated`
+
+Torrents updated today from the specified tracker.
+
+```bash
+curl "http://127.0.0.1:9117/stats/trackers/Kinozal/updated"
+```
+
+---
+
+
+### `GET /stats/parsers`
+
+Per-parser health for the `/trackers` page: what the config says, how CF
+auto-detect is actually routing the domain, whether a session is stored, and the
+outcome of the last run of each cron op.
+
+```json
+{
+  "count": 23,
+  "trackers": [
+    {
+      "name": "rutracker", "host": "https://rutracker.org", "disabled": false,
+      "route": "flare", "cfSince": "2026-08-01T19:58:43Z",
+      "auth": "session", "authSince": "2026-08-28T09:12:00Z",
+      "runs": [
+        { "op": "parse", "at": "2026-08-28T10:04:22Z", "seconds": 272.4,
+          "http": 200, "status": "ok",
+          "fetched": 3008, "added": 33, "updated": 2371, "skipped": 604, "failed": 0 }
+      ]
+    }
+  ]
+}
+```
+
+`route` is what the request will actually take — `Data/temp/cf_auto.json` is the
+authority, `fetchmode` only a hint. `auth` is `none` / `cookie` / `login` /
+`session`; cookie **values** are never returned, only whether one exists and
+when it was stored.
+
+Runs are recorded by observing the response of every `/cron/<tracker>/<op>` call
+and kept in `Data/temp/tracker_runs.json`, so the history survives a restart.
+
+## Sync API
+
+Multi-instance synchronization. Enabled by `opensync: true` in config.
+
+### `GET /sync/conf`
+
+Discovery endpoint — check protocol version.
+
+```json
+{ "fbd": true, "spidr": true, "version": 2 }
+```
+
+### V2 Protocol
+
+#### `GET /sync/fdb`
+
+List database bucket keys (low-level, for replication).
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `key` | — | Substring filter on bucket key (e.g. `matrix`) |
+| `limit` / `take` | `20` | Max entries to return |
+
+```bash
+curl "http://127.0.0.1:9117/sync/fdb?key=matrix&limit=5"
+```
+
+#### `GET /sync/fdb/torrents`
+
+Incremental sync — returns torrents modified after a timestamp.
+
+| Parameter | Aliases | Required | Description |
+|-----------|---------|----------|-------------|
+| `time` | `fileTime` | **Yes** | Return only buckets with fileTime > this value (Windows FILETIME format) |
+| `start` | `startTime` | No | Return only torrents with updateTime > this value |
+| `spidr` | — | No | `true` = return only url/sid/pir metadata (lighter payload) |
+| `take` | `limit` | No | Batch size (default 2000) |
+
+```bash
+# Initial sync (time=0 = get everything)
+curl "http://127.0.0.1:9117/sync/fdb/torrents?time=0&take=2000"
+
+# Incremental sync using fileTime from previous response
+curl "http://127.0.0.1:9117/sync/fdb/torrents?time=133476543210000000"
+
+# Spider mode (metadata only, faster)
+curl "http://127.0.0.1:9117/sync/fdb/torrents?time=0&spidr=true"
+```
+
+**Response:**
+
+```json
+{
+  "nextread": true,
+  "countread": 2000,
+  "take": 2000,
+  "collections": [
+    {
+      "Key": "матрица:the matrix",
+      "Value": {
+        "time": "2024-01-15 10:30:45",
+        "fileTime": 133476543210000000,
+        "torrents": {
+          "https://kinozal.guru/details.php?id=123": { ... }
+        }
+      }
+    }
+  ]
+}
+```
+
+When `nextread: true`, call again with the last received `fileTime` to get more data.
+
+### V1 Protocol (Legacy)
+
+Enabled with `opensync_v1: true`.
+
+#### `GET /sync/torrents`
+
+| Parameter | Aliases | Required | Description |
+|-----------|---------|----------|-------------|
+| `time` | `fileTime` | **Yes** | Timestamp filter |
+| `trackerName` | `tracker` | No | Filter by tracker |
+| `take` | `limit` | No | Batch size (default 2000) |
+
+```bash
+curl "http://127.0.0.1:9117/sync/torrents?time=0&trackerName=Rutor"
+```
+
+Response: flat array of `{ "key": "name:originalname", "value": {...} }`
+
+---
+
+## Database Admin Endpoints
+
+### `GET /jsondb/save`
+
+Manually flush in-memory database to disk (`Data/masterDb.bz`).
+
+```bash
+curl "http://127.0.0.1:9117/jsondb/save"
+# "work" — already saving
+# "ok"   — saved successfully
+```
+
+A daily backup `Data/masterDb_DD-MM-YYYY.bz` is created on each save. Backups older than 3 days are auto-deleted.
+
+---
+
+## Dev/Maintenance Endpoints
+
+Available from **local IP only** (127.0.0.1, ::1, fe80::/10 link-local, fc00::/7 ULA, IPv4-mapped IPv6).
+
+### Data Integrity
+
+#### `GET /dev/findcorrupt`
+
+Scans all buckets for corrupted entries.
+
+| Parameter | Aliases | Default | Description |
+|-----------|---------|---------|-------------|
+| `sampleSize` | `sample`, `limit` | `20` | Max examples per issue type |
+
+```bash
+curl "http://127.0.0.1:9117/dev/findcorrupt"
+curl "http://127.0.0.1:9117/dev/findcorrupt?sampleSize=50"
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "totalFdbKeys": 12500,
+  "totalTorrents": 480000,
+  "corrupt": {
+    "nullValue":           { "count": 0, "sample": [] },
+    "missingName":         { "count": 12, "sample": [...] },
+    "missingOriginalname": { "count": 3, "sample": [...] },
+    "missingTrackerName":  { "count": 0, "sample": [] }
+  }
+}
+```
+
+#### `GET /dev/removeNullValues`
+
+Deletes entries where torrent value is `null`.
+
+```bash
+curl "http://127.0.0.1:9117/dev/removeNullValues"
+# Response: { "ok": true, "removed": 5, "files": 3 }
+```
+
+#### `GET /dev/findDuplicateKeys`
+
+Finds bucket keys where name == originalname (potential duplicates).
+
+| Parameter | Aliases | Default | Description |
+|-----------|---------|---------|-------------|
+| `tracker` | `trackerName` | — | Filter: only keys containing this tracker's torrents |
+| `excludeNumeric` | — | `true` | Exclude purely numeric keys |
+
+```bash
+curl "http://127.0.0.1:9117/dev/findDuplicateKeys"
+curl "http://127.0.0.1:9117/dev/findDuplicateKeys?tracker=Kinozal&excludeNumeric=false"
+```
+
+#### `GET /dev/findEmptySearchFields`
+
+Finds torrents with empty `_sn` (search name) or `_so` (search original) fields.
+
+| Parameter | Aliases | Default | Description |
+|-----------|---------|---------|-------------|
+| `sampleSize` | `sample`, `limit` | `20` | Max examples per category |
+
+```bash
+curl "http://127.0.0.1:9117/dev/findEmptySearchFields"
+```
+
+### Data Updates
+
+#### `GET /dev/updateDetails`
+
+Recomputes `quality`, `videotype`, `voices`, `languages`, `seasons` for all stored torrents.
+
+```bash
+curl "http://127.0.0.1:9117/dev/updateDetails"
+```
+
+#### `GET /dev/updateSearchName`
+
+Update search fields for a specific bucket.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `bucket` | Yes | Bucket key in format `name:originalname` |
+| `fieldName` | No | Field to update |
+| `value` | No | New value |
+
+```bash
+curl "http://127.0.0.1:9117/dev/updateSearchName?bucket=матрица:the+matrix&fieldName=_sn&value=матрица"
+```
+
+#### `GET /dev/updateSize`
+
+Update torrent size in a bucket.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `bucket` | Yes | Bucket key |
+| `value` | Yes | Size with suffix: `500MB`, `14.7GB`, `1.2TB`, or bytes |
+
+```bash
+curl "http://127.0.0.1:9117/dev/updateSize?bucket=матрица:the+matrix&value=14.7GB"
+```
+
+#### `GET /dev/resetCheckTime`
+
+Resets `checkTime` to yesterday for all torrents (forces re-check on next parse).
+
+```bash
+curl "http://127.0.0.1:9117/dev/resetCheckTime"
+```
+
+### Tracker-Specific Fixes
+
+#### `GET /dev/fixKnabenNames`
+
+Normalizes Knaben torrent names/years/titles and migrates to correct bucket keys.
+
+```bash
+curl "http://127.0.0.1:9117/dev/fixKnabenNames"
+```
+
+#### `GET /dev/fixBitruNames`
+
+Cleans Bitru torrent titles (strips quality tags, codec info, release groups).
+
+```bash
+curl "http://127.0.0.1:9117/dev/fixBitruNames"
+```
+
+#### `GET /dev/fixEmptySearchFields`
+
+Auto-populates empty `_sn`/`_so` search fields and migrates torrents to correct buckets.
+
+```bash
+curl "http://127.0.0.1:9117/dev/fixEmptySearchFields"
+```
+
+#### `GET /dev/migrateAnilibertyUrls`
+
+Appends `?hash=<btih>` to Aniliberty URLs using magnet link hashes.
+
+```bash
+curl "http://127.0.0.1:9117/dev/migrateAnilibertyUrls"
+```
+
+#### `GET /dev/removeDuplicateAniliberty`
+
+Deduplicates Aniliberty torrents by magnet hash, keeping the most recent.
+
+```bash
+curl "http://127.0.0.1:9117/dev/removeDuplicateAniliberty"
+```
+
+#### `GET /dev/fixAnimelayerDuplicates`
+
+Normalizes http→https for Animelayer URLs and removes duplicates by hex ID.
+
+```bash
+curl "http://127.0.0.1:9117/dev/fixAnimelayerDuplicates"
+```
+
+#### `GET /dev/fixKinozalUrls`
+
+Normalizes http→https for Kinozal URLs and removes duplicates by `id=NNN`, keeping the most recent.
+
+```bash
+curl "http://127.0.0.1:9117/dev/fixKinozalUrls"
+```
+
+#### `GET /dev/fixSelezenUrls`
+
+Normalizes Selezen host (old hosts like `open.selezen.org` → configured `Selezen.Host`) and removes duplicates by numeric item ID, keeping the most recent.
+
+```bash
+curl "http://127.0.0.1:9117/dev/fixSelezenUrls"
+```
+
+### Bucket Management
+
+#### `GET /dev/removeBucket`
+
+Delete an entire bucket (all torrents under a key).
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `key` | Yes | Bucket key in format `name:originalname` |
+| `migrateName` | No | If set: move torrents to this new name instead of deleting |
+| `migrateOriginalname` | No | New originalname for migration target |
+
+```bash
+# Delete bucket
+curl "http://127.0.0.1:9117/dev/removeBucket?key=матрица:the+matrix"
+
+# Rename/migrate bucket to new key
+curl "http://127.0.0.1:9117/dev/removeBucket?key=матрица:the+matrix&migrateName=the+matrix&migrateOriginalname=the+matrix"
+```
+
+---
+
+## Web UI
+
+When `web: true`, three pages are served. The UI assets (HTML, icons, manifest) are embedded into the binary at build time via `//go:embed all:wwwroot` in `server/embed.go` — no external `wwwroot/` directory is required at runtime. If a `wwwroot/` directory exists alongside the binary, individual files in it override the embedded copy (handy for live-editing during development).
+
+| Path | Purpose |
+|------|---------|
+| `/` | `index.html` — torrent search (Kinopoisk / IMDB / title), filters, magnet links, TorrServer launcher |
+| `/stats` | `stats.html` — per-tracker statistics dashboard (new/updated/checked counts, last run time) |
+| `/settings` | `settings.html` — editor for the full `init.yaml` config (server, logging, sync, trackers, proxies) |
+| `/trackers` | `trackers.html` — health of all 23 parsers: last run, route, authorization, run-now |
+| `/opensearch.xml` | OpenSearch description, so the browser can search this instance from its address bar |
+
+The Settings page talks to `/admin/config` (GET to load, POST to save) and is local-only (`127.0.0.1` / RFC1918 / link-local / ULA). On save the server writes `init.yaml` atomically, re-parses it with the same loader used on startup, and calls `UpdateConfig` to apply new values to the running server, DB, and all 21 parsers — no restart needed.
+
+### `GET /admin/config`
+
+Returns the current in-memory config as JSON. **Local IPs only.**
+
+### `POST /admin/config`
+
+Accepts a full config JSON body, overlays it on top of the current config, writes `init.yaml` (atomic temp-file + rename), then reloads. **Local IPs only.**
+
+```bash
+# Example: dump current config
+curl -s "http://127.0.0.1:9117/admin/config" > current.json
+
+# Example: tweak and push back
+jq '.log = true' current.json | curl -X POST -H 'Content-Type: application/json' \
+  --data-binary @- "http://127.0.0.1:9117/admin/config"
+```
+
+Responses: `{"ok": true}` on success, `{"ok": false, "error": "..."}` on failure. The JSON writer normalizes to the structure `init.yaml` parser expects — existing comments in `init.yaml` are lost on save (the file is regenerated from the config struct).
+
+### `GET /admin/cf-domains`
+
+Returns the auto-detected CloudFlare domain registry — domains that returned a CF challenge during a standard fetch and were promoted to flaresolverr routing automatically. **Local IPs only.**
+
+```bash
+curl -s "http://127.0.0.1:9117/admin/cf-domains"
+```
+
+```json
+{
+  "ok": true,
+  "count": 2,
+  "domains": [
+    {"domain": "megapeer.vip", "detected": "2026-04-30T12:34:56Z", "ageHours": 21},
+    {"domain": "bitru.org",    "detected": "2026-05-01T08:10:00Z", "ageHours": 2}
+  ]
+}
+```
+
+### `DELETE /admin/cf-domains`
+
+Clears one entry (when `?domain=` is supplied) or the whole registry (when omitted). Useful when a site stops using CloudFlare. Returns `{"ok": true, "removed": N}`. **Local IPs only.**
+
+```bash
+# Clear a single domain
+curl -X DELETE "http://127.0.0.1:9117/admin/cf-domains?domain=megapeer.vip"
+# Clear all
+curl -X DELETE "http://127.0.0.1:9117/admin/cf-domains"
+```
+
+
+### UI assets
+
+The pages have no runtime dependency on the network. Tailwind is compiled ahead
+of time into `server/wwwroot/assets/app.css`, Inter is self-hosted from
+`assets/fonts/` (cyrillic + latin subsets, 67 KB), and the handful of icons that
+used to come from Font Awesome are inline SVG. Previously all three pulled
+Tailwind from `cdn.tailwindcss.com` — a compiler that rebuilt the stylesheet in
+the browser on every open — so the admin UI of a self-hosted service came up
+unstyled whenever the box had no internet or those hosts were blocked.
+
+`assets/app.js` holds the shared shell: the theme (one `dark` class on `<html>`,
+stored in `localStorage`) and the navigation rendered into
+`<header id="appHeader" data-page="...">` on every page — a side panel on a
+desktop, a bottom bar on a phone. It also carries a badge with the number of
+parsers needing attention and a footer showing service health, version and the
+last database update.
+
+Regenerate the stylesheet after adding or removing a Tailwind class anywhere
+under `server/wwwroot/`:
+
+```bash
+./build_css.sh          # needs the tailwindcss v3 CLI, or npx
+```
+
+This is **not** part of the release build — `go build ./cmd` and `build_all.sh`
+stay sufficient, because `app.css` is committed like any other asset. Sources
+live in `web/` (`app.src.css`, `tailwind.config.js`).
+
+## Config Hot-Reload
+
+The `init.yaml` file is checked for changes every 10 seconds. When the file modification time changes, the config is reloaded automatically — no restart needed. Saves from the Settings page use the same reload path.
+
+Hot-reloadable settings include: API keys, logging flags, sync settings, stats update interval, tracker hosts/cookies/credentials, rate limits.
+
+## Search Result Caching
+
+Search endpoints (`/api/v1.0/torrents` and `/api/v2.0/indexers/*/results`) cache results in memory with a 5-minute TTL. Cache hits return an `X-Cache: HIT` header. The cache is keyed by the full query string.
+
+## FDB Audit Log
+
+When `logFdb: true`, every bucket change is logged to `Data/log/fdb.YYYY-MM-dd.log` in JSON Lines format. Each line records the incoming and existing torrent data for the changed entry.
+
+Retention is controlled by `logFdbRetentionDays`, `logFdbMaxSizeMb`, and `logFdbMaxFiles`. Cleanup runs automatically after each masterDb save.
+
+## Parser Logging
+
+Two-level logging control:
+1. **Global gate:** `logParsers: true` must be set to enable any parser logging
+2. **Per-tracker:** each tracker's `log: true` enables logging for that specific tracker
+
+Both must be `true` for logs to be written. Log files are stored in `Data/log/{tracker}.log`.
+
+---
+
+## Cron Examples
+
+Typical external crontab (`/etc/cron.d/jacred` or `Data/crontab`):
+
+```cron
+# Lightweight daily update — latest pages only
+0  6 * * *  root  curl -s "http://127.0.0.1:9117/cron/rutor/parselatest?pages=3" >/dev/null
+5  6 * * *  root  curl -s "http://127.0.0.1:9117/cron/kinozal/parselatest?pages=3" >/dev/null
+10 6 * * *  root  curl -s "http://127.0.0.1:9117/cron/rutracker/parselatest?pages=3" >/dev/null
+15 6 * * *  root  curl -s "http://127.0.0.1:9117/cron/nnmclub/parselatest?pages=3" >/dev/null
+20 6 * * *  root  curl -s "http://127.0.0.1:9117/cron/torrentby/parselatest?pages=3" >/dev/null
+
+# Anime trackers — multiple pages
+30 6 * * *  root  curl -s "http://127.0.0.1:9117/cron/animelayer/parse?maxpage=3" >/dev/null
+35 6 * * *  root  curl -s "http://127.0.0.1:9117/cron/anidub/parse?parseFrom=1&parseTo=3" >/dev/null
+40 6 * * *  root  curl -s "http://127.0.0.1:9117/cron/anistar/parse?limit_page=3" >/dev/null
+45 6 * * *  root  curl -s "http://127.0.0.1:9117/cron/anifilm/parse" >/dev/null
+
+# Weekly full re-parse (task-based trackers)
+0  2 * * 0  root  curl -s "http://127.0.0.1:9117/cron/kinozal/updatetasksparse" >/dev/null
+30 2 * * 0  root  curl -s "http://127.0.0.1:9117/cron/kinozal/parsealltask" >/dev/null
+
+# Force DB save after heavy parse
+0  8 * * *  root  curl -s "http://127.0.0.1:9117/jsondb/save" >/dev/null
+```
+
+---
+
+## Database Structure
+
+```
+Data/
+  masterDb.bz               # Gzipped JSON index: key → {fileTime, updateTime, path}
+  masterDb_DD-MM-YYYY.bz    # Daily backups (auto-created, kept 3 days)
+  fdb/
+    ab/cdef012...            # Bucket files (gzipped JSON): url → torrent object
+  temp/
+    stats.json               # Pre-computed stats cache
+  log/
+    YYYY-MM-DD.log           # Application log (when log: true)
+    kinozal.log              # Per-tracker add/update/skip/fail logs
+    fdb.YYYY-MM-dd.log       # FDB audit log: JSON Lines per bucket change
+  {tracker}_tasks.json       # Task state for incremental parsers
+```
+
+Each bucket file key is derived from MD5 of the bucket key (`name:originalname`) split into 2-char prefix directory.
+
+### Torrent Object Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string | Tracker page URL (primary key within bucket) |
+| `title` | string | Full torrent title as shown on tracker |
+| `name` | string | Normalized Russian/English name |
+| `originalname` | string | Original (usually English) name |
+| `trackerName` | string | Source tracker name |
+| `relased` | int | Release year |
+| `size` | int64 | Size in bytes |
+| `sizeName` | string | Human-readable size (e.g. `14.0 GB`) |
+| `sid` | int | Seeders |
+| `pir` | int | Peers/leechers |
+| `magnet` | string | Magnet link |
+| `btih` | string | Info hash |
+| `quality` | int | `480`, `720`, `1080`, `2160` |
+| `videotype` | string | `sdr`, `hdr` |
+| `voices` | string | Dubbing studios |
+| `languages` | string | `rus`, `ukr` |
+| `seasons` | string | Season list, e.g. `1-5` or `1,3,7` |
+| `types` | []string | Content type tags |
+| `createTime` | string | First seen timestamp |
+| `updateTime` | string | Last updated timestamp |
+| `checkTime` | string | Last checked/parsed timestamp |
+| `_sn` | string | Search-normalized name |
+| `_so` | string | Search-normalized original name |
+
+---
+
+## Utility Endpoints
+
+```
+GET /health          → {"status": "OK"}
+GET /version         → {"version": "...", "gitSha": "...", "gitBranch": "...", "buildDate": "..."}
+GET /lastupdatedb    → last database write timestamp
+GET /                → index.html (if web: true)
+GET /stats           → stats.html (if web: true)
+GET /settings        → settings.html (if web: true)
+```
+
+---
+
+## Releases (CI)
+
+Releases are cut by GitHub Actions (`.github/workflows/release.yml`). The
+workflow has a single trigger — pushing a version tag:
+
+```bash
+git tag -a v1.2.3 -m "release 1.2.3"
+git push origin v1.2.3
+```
+
+Nothing runs on ordinary branch pushes or pull requests. The job verifies
+`go.mod`/`go.sum` are tidy, runs `go vet` and `go test`, cross-compiles every
+target via `build_all.sh`, then publishes a release containing each binary,
+`SHA256SUMS` and `init.yaml.example`.
+
+A run can also be started by hand from the Actions tab, or with:
+
+```bash
+gh workflow run release.yml -f tag=1.2.3
+```
+
+The tag is a required input because on a manual dispatch `github.ref_name` is
+the branch the run was started from, not a tag — without it the job would build
+branch HEAD and publish a release named `main`. The workflow checks the value
+really is an existing tag before building. Re-running a tag that already has a
+release replaces its assets instead of failing.
+
+Notes:
+
+- The version baked into `/version` comes from `git describe --tags`, so the
+  checkout uses `fetch-depth: 0`.
+- CI builds with `GOWORK=off` against the dependency versions pinned in
+  `go.mod`. Local module overrides belong in `go.work`, which is gitignored —
+  see the comment at the top of that file.
+- `build_all.sh` skips `go mod tidy` when `CI` is set, so a tagged build can
+  never resolve a different dependency graph than the one that was tagged.
+- The release archive bundles only `init.yaml.example`. `init.yaml` is a live
+  deployment file holding tracker credentials and must not be published.
+- Do not run `go get -u` on this module. `anacrolix/torrent v1.61.0` (the newest
+  release) requires `anacrolix/missinggo/v2 v2.10.0`, the last version built on
+  `RoaringBitmap/roaring` v1; missinggo v2.11.0 moved to `roaring/v2` and
+  torrent then fails to compile *inside its own source*, with no newer torrent
+  to upgrade to. `go mod tidy` never causes this — a blanket upgrade does.
+  Recover with `git checkout go.mod go.sum`, then `go get` the single module
+  you actually wanted.

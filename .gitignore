@@ -1,0 +1,49 @@
+# Локальные данные и кэш
+ipad/hls_cache/
+ipad/posters.json
+**/__pycache__/
+*.pyc
+*.pyo
+*.log
+films.err.log
+films.out.log
+ts-start.log
+
+# Базы и состояние TorrServer
+config.db
+settings.json
+viewed.json
+*.db
+*.db-journal
+
+# Бинарники и чужие дистрибутивы (качайте отдельно)
+*.exe
+TorrServer-windows-amd64.exe
+TorrServerGUI.exe
+unins000.*
+tools/
+prowlarr/
+prowlarr-data/
+jacred/
+server/
+
+# Торренты и медиа
+torrents/
+*.torrent
+*.mkv
+*.mp4
+*.avi
+
+# Секреты и локальные конфиги
+.env
+.env.*
+ipad/catalog.json
+**/secrets*
+**/credentials*
+
+# IDE / ОС
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

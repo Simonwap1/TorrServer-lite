@@ -1,0 +1,16 @@
+{
+  "catalog_provider": "tmdb",
+  "tmdb_api_key": "СЮДА_Ключ_API_v3_короткий",
+  "tmdb_access_token": "СЮДА_Ключ_доступа_к_API_длинный_eyJ..._или_оставьте_пустым",
+  "tmdb_language": "ru-RU",
+  "tmdb_image_base": "https://image.tmdb.org/t/p/w300",
+  "kinopoisk_api_key": "",
+  "jacred_url": "http://127.0.0.1:9117",
+  "jacred_apikey": "",
+  "jacred_auto_install": true,
+  "jacred_sync_url": "https://sync.jacred.stream",
+  "prowlarr_url": "http://127.0.0.1:9696",
+  "prowlarr_apikey": "СЮДА_API_KEY_из_Prowlarr_Settings_General",
+  "prowlarr_auto_install": true,
+  "torrent_sources": "jacred,prowlarr"
+}

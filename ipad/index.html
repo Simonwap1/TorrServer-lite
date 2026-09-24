@@ -1,0 +1,2065 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>TorrServer Lite</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      background: #121212;
+      color: #eee;
+      padding: 0;
+      padding-bottom: 24px;
+    }
+    .appbar {
+      position: -webkit-sticky; position: sticky; top: 0; z-index: 40;
+      height: 56px; background: #1a1a1a; color: #fff;
+      border-bottom: 1px solid #2a2a2a;
+      display: -webkit-box; display: flex;
+      -webkit-box-align: center; align-items: center;
+      padding: 0 4px 0 2px;
+      -webkit-box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    }
+    .appbar .menuBtn, .appbar .refreshTop {
+      margin: 0; background: transparent; color: #eee;
+      font-size: 22px; padding: 10px 12px; line-height: 1; min-width: 44px;
+      border-radius: 0;
+    }
+    .appbar .title {
+      -webkit-box-flex: 1; flex: 1; font-size: 18px; font-weight: bold;
+      margin: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: #00a572;
+    }
+    .appbar .ver { color: #888; font-size: 11px; margin-right: 6px; }
+    .page { padding: 10px; }
+    .drawerBack {
+      display: none; position: fixed; left: 0; right: 0; top: 0; bottom: 0;
+      background: rgba(0,0,0,0.55); z-index: 80;
+    }
+    .drawerBack.on { display: block; }
+    .drawer {
+      position: fixed; left: 0; top: 0; bottom: 0; width: 280px; max-width: 84%;
+      background: #1a1a1a; z-index: 90;
+      -webkit-transform: translateX(-105%); transform: translateX(-105%);
+      -webkit-transition: -webkit-transform 0.22s ease; transition: transform 0.22s ease;
+      display: -webkit-box; display: flex;
+      -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column;
+      -webkit-box-shadow: 2px 0 14px rgba(0,0,0,0.55); box-shadow: 2px 0 14px rgba(0,0,0,0.55);
+    }
+    .drawer.on { -webkit-transform: translateX(0); transform: translateX(0); }
+    .drawerHead { background: #141414; color: #fff; padding: 30px 16px 18px; border-bottom: 1px solid #2a2a2a; }
+    .drawerHead .brand { font-size: 22px; font-weight: bold; margin: 0 0 4px; color: #00a572; }
+    .drawerHead .subBrand { font-size: 12px; color: #888; margin: 0; }
+    .drawerNav { padding: 8px 0; -webkit-box-flex: 1; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .drawerNav button {
+      display: -webkit-box; display: flex; -webkit-box-align: center; align-items: center;
+      width: 100%; text-align: left; margin: 0; padding: 14px 18px;
+      font-size: 15px; font-weight: bold; background: transparent; color: #ddd; border-radius: 0;
+    }
+    .drawerNav button .ico { width: 28px; margin-right: 14px; font-size: 18px; color: #888; text-align: center; }
+    .drawerNav button.on { background: rgba(0,165,114,0.18); color: #00a572; }
+    .drawerNav button.on .ico { color: #00a572; }
+    .drawerFoot { border-top: 1px solid #2a2a2a; padding: 12px 16px; color: #777; font-size: 11px; line-height: 1.4; }
+    .view { display: none; }
+    .view.on { display: block; }
+    .settingsCard, .aboutCard {
+      background: #1e1e1e; border-radius: 8px; padding: 14px; margin-bottom: 10px;
+      border: 1px solid #2a2a2a;
+    }
+    .settingsCard h2, .aboutCard h2 { margin: 0 0 8px; font-size: 17px; color: #eee; font-weight: bold; }
+    .settingsCard p, .aboutCard p { margin: 0 0 10px; color: #999; font-size: 14px; line-height: 1.4; }
+    .settingsCard button, .aboutCard a.btn, .aboutCard button {
+      display: block; width: 100%; margin: 0 0 8px; text-align: center; padding: 12px; font-size: 15px;
+    }
+    .donateBlock {
+      margin: 14px 0 8px;
+      padding-top: 12px;
+      border-top: 1px solid #2a2a2a;
+    }
+    .donateBlock h2 { margin-bottom: 6px; }
+    .donateRow {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 10px;
+      margin: 0 0 8px;
+    }
+    .donateRow .net {
+      color: #00a572;
+      font-size: 13px;
+      font-weight: bold;
+      margin: 0 0 6px;
+    }
+    .donateRow .addr {
+      color: #ddd;
+      font-size: 12px;
+      word-break: break-all;
+      line-height: 1.35;
+      margin: 0 0 8px;
+      font-family: Menlo, Consolas, monospace;
+    }
+    .donateRow button {
+      margin: 0 !important;
+      padding: 10px !important;
+      font-size: 14px !important;
+    }
+    .err {
+      background: #422; color: #fcc; padding: 8px 10px; margin-bottom: 10px;
+      border-radius: 6px; display: none; font-size: 13px;
+    }
+    .box {
+      background: #1e1e1e; border-radius: 8px; padding: 10px; margin-bottom: 12px;
+      border: 1px solid #2a2a2a;
+    }
+    textarea {
+      width: 100%; background: #111; border: 1px solid #333; color: #eee;
+      border-radius: 6px; padding: 8px; font-size: 15px; font-family: inherit;
+      resize: vertical; min-height: 40px; height: 40px;
+    }
+    input.line {
+      width: 100%; background: #111; border: 1px solid #333; color: #eee;
+      border-radius: 6px; padding: 8px; font-size: 14px; font-family: inherit;
+      margin-top: 6px; -webkit-appearance: none; -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+    }
+    .movie .actions input.line {
+      font-size: 12px; padding: 7px 6px; margin: 0 0 5px 0;
+      background: #111; border-color: #333; color: #eee;
+    }
+    .row { margin-top: 6px; }
+    button, .btn {
+      display: inline-block; background: #00a572; color: #fff; border: 0;
+      border-radius: 6px; padding: 8px 10px; font-size: 13px;
+      text-decoration: none; cursor: pointer; margin: 0 4px 4px 0;
+      -webkit-appearance: none;
+    }
+    button.secondary, .btn.secondary { background: #3a3a3a; }
+    button.danger, .btn.danger { background: #a33; }
+    button:disabled { opacity: 0.5; }
+    input[type=file] {
+      width: 100%; font-size: 13px; color: #aaa; margin: 4px 0 0;
+    }
+    .hint { color: #888; font-size: 12px; padding: 12px 4px; }
+
+    #list {
+      display: -webkit-box;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-flex-wrap: wrap;
+      flex-wrap: wrap;
+      margin: 0 -3px;
+    }
+    .movie {
+      display: -webkit-box; display: flex;
+      -webkit-box-orient: vertical;
+      -webkit-flex-direction: column;
+      flex-direction: column;
+      background: #1e1e1e; border-radius: 6px; overflow: hidden;
+      margin: 0 3px 6px; border: 1px solid #2a2a2a;
+      width: calc(25% - 6px);
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+    }
+    .poster {
+      width: 100%;
+      padding-top: 150%;
+      -webkit-flex-shrink: 0; flex-shrink: 0;
+      background: #2a2a2a center center no-repeat;
+      -webkit-background-size: cover; background-size: cover;
+      position: relative;
+      cursor: pointer;
+    }
+    .poster .ph {
+      position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+      display: -webkit-box; display: flex;
+      -webkit-box-align: center; align-items: center;
+      -webkit-box-pack: center; justify-content: center;
+      color: #555; font-size: 20px; font-weight: bold;
+    }
+    .info {
+      padding: 5px;
+      min-width: 0;
+    }
+    .info h2 {
+      margin: 0 0 3px; font-size: 11px; font-weight: normal;
+      word-wrap: break-word; line-height: 1.2;
+      max-height: 2.4em; overflow: hidden;
+    }
+    .meta { color: #999; font-size: 9px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .peers {
+      color: #aaa; font-size: 9px; margin-bottom: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .peers b { color: #ccc; font-weight: normal; }
+    .bar {
+      height: 2px; background: #333; border-radius: 1px;
+      margin-bottom: 0; overflow: hidden;
+    }
+    .bar > i { display: block; height: 100%; background: #0a7; width: 0; }
+    .movie .actions {
+      display: none;
+      padding: 0 5px 6px;
+    }
+    .movie.open {
+      border-color: #0a7;
+    }
+    .movie.open .actions {
+      display: block;
+    }
+    .epHint {
+      color: #8c8; font-size: 12px; font-weight: bold; margin: 0 0 6px;
+    }
+    .seasonBar {
+      margin: 0 0 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
+    }
+    .seasonBar button {
+      display: inline-block;
+      width: auto;
+      margin: 0 6px 0 0;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: bold;
+      background: #2a2a2a;
+      vertical-align: top;
+    }
+    .seasonBar button.on {
+      background: #0a7;
+    }
+    .epList {
+      max-height: 42vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 0 8px;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 0 6px;
+    }
+    .ep {
+      border-top: 1px solid #333;
+      padding: 6px 0 2px;
+      margin-top: 4px;
+    }
+    .ep:first-child { border-top: none; margin-top: 0; }
+    .epName {
+      font-size: 12px; color: #ddd; margin: 0 0 4px;
+      word-wrap: break-word; line-height: 1.25;
+    }
+    .ep .btn,
+    .ep button {
+      display: inline-block !important;
+      width: auto !important;
+      margin: 0 4px 4px 0 !important;
+      padding: 8px 10px !important;
+      font-size: 12px !important;
+    }
+    .movie .actions .btn,
+    .movie .actions button {
+      display: block;
+      width: 100%;
+      margin: 0 0 5px 0;
+      padding: 11px 6px;
+      font-size: 14px;
+      font-weight: bold;
+      text-align: center;
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+    }
+    .movie .actions .btn:last-child,
+    .movie .actions button:last-child { margin-bottom: 0; }
+    .resumeHint {
+      color: #8c8; font-size: 12px; margin: 0 0 6px; font-weight: bold;
+    }
+    .empty {
+      color: #888; text-align: center; padding: 30px 10px;
+      width: 100%;
+    }
+    .movie .info h2 { color: #eee; }
+
+
+    #playerOverlay {
+      display: none;
+      position: fixed;
+      left: 0; right: 0; top: 0; bottom: 0;
+      background: rgba(0,0,0,0.94);
+      z-index: 1000;
+      padding: 10px;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    #playerOverlay.on { display: block; }
+    #playerOverlay h3 {
+      margin: 0 0 8px; font-size: 16px; font-weight: normal;
+    }
+    #playerVideo {
+      width: 100%;
+      max-height: 55vh;
+      background: #000;
+      display: block;
+    }
+    #seekWrap {
+      margin: 8px 0 4px;
+      display: none;
+    }
+    #seekWrap.on { display: block; }
+    #seekBar {
+      width: 100%;
+      margin: 0;
+      height: 28px;
+    }
+    #seekBar.hidden { display: none; }
+    #seekRow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+    #seekLabel {
+      color: #ccc;
+      font-size: 12px;
+      flex: 1;
+      text-align: center;
+      min-width: 90px;
+    }
+    #seekWrap .seekBtn {
+      display: inline-block;
+      width: auto;
+      margin: 0;
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    #seekToInput {
+      width: 88px;
+      padding: 8px 6px;
+      font-size: 13px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #1a1a1a;
+      color: #eee;
+      text-align: center;
+    }
+    #playerStatus {
+      color: #ccc; font-size: 13px; margin: 8px 0 4px; line-height: 1.35;
+      min-height: 20px;
+    }
+    .bufWrap {
+      background: #2a2a2a;
+      border-radius: 4px;
+      height: 18px;
+      overflow: hidden;
+      margin: 0 0 10px;
+      position: relative;
+    }
+    .bufBar {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: #0a7;
+      -webkit-transition: width 0.25s linear;
+      transition: width 0.25s linear;
+    }
+    .bufLabel {
+      position: absolute;
+      left: 0; right: 0; top: 0; bottom: 0;
+      text-align: center;
+      font-size: 11px;
+      line-height: 18px;
+      color: #fff;
+      text-shadow: 0 1px 2px #000;
+    }
+    #playerOverlay .btn {
+      display: inline-block; width: auto; text-align: center;
+      margin: 0 6px 6px 0; padding: 12px 14px; font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="drawerBack" id="drawerBack"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawerHead">
+      <div class="brand">TorrServer</div>
+      <div class="subBrand">MatriX Lite · <span id="verDrawer">…</span></div>
+    </div>
+    <div class="drawerNav">
+      <button type="button" class="on" id="navTorrents" data-view="torrents"><span class="ico">▤</span>Торренты</button>
+      <button type="button" id="navSettings" data-view="settings"><span class="ico">⚙</span>Настройки</button>
+      <button type="button" id="navAbout" data-view="about"><span class="ico">ℹ</span>О программе</button>
+    </div>
+    <div class="drawerFoot">
+      iPad: :8080 (этот интерфейс)<br>
+      ПК и другие: полный MatriX :8092
+    </div>
+  </aside>
+
+  <div class="appbar">
+    <button type="button" class="menuBtn" id="menuBtn" aria-label="Меню">☰</button>
+    <div class="title" id="appTitle">Torrents</div>
+    <span class="ver" id="ver">…</span>
+    <button type="button" class="refreshTop" id="refreshBtn" aria-label="Обновить">↻</button>
+  </div>
+
+  <div class="page">
+  <div id="err" class="err"></div>
+
+  <div class="view on" id="viewTorrents">
+  <div class="box" id="addBox">
+    <textarea id="magnet" placeholder="magnet / ссылка .torrent"></textarea>
+    <input class="line" id="posterUrl" type="url" placeholder="ссылка на постер (http…) — необязательно">
+    <input class="line" id="titleOverride" type="text" placeholder="название — необязательно">
+    <div class="row">
+      <button id="addBtn" type="button">+ ссылка</button>
+      <button id="uploadBtn" type="button">+ .torrent</button>
+      <button id="scanLocalBtn" class="secondary" type="button">с ПК</button>
+    </div>
+    <input id="torrentFile" type="file" accept=".torrent,application/x-bittorrent" multiple>
+    <div id="localList"></div>
+  </div>
+
+  <div id="list"><div class="empty">…</div></div>
+  </div>
+
+  <div class="view" id="viewSettings">
+    <div class="settingsCard">
+      <h2>Настройки</h2>
+      <p>Lite для iPad. Добавление magnet/.torrent — на вкладке «Торренты».</p>
+      <button type="button" id="settingsRefreshBtn">Обновить список торрентов</button>
+      <button type="button" class="secondary" id="settingsFocusAdd">К форме добавления</button>
+      <a class="btn secondary" href="http://192.168.31.231:8092/">Открыть полный MatriX (:8092)</a>
+      <h2 style="margin-top:18px">HLS кэш</h2>
+      <p id="hlsCacheInfo">Размер: …</p>
+      <button type="button" class="secondary" id="hlsCacheRefreshBtn">Обновить размер</button>
+      <button type="button" class="danger" id="hlsCacheClearBtn">Удалить HLS кэш</button>
+      <p id="settingsInfo">…</p>
+    </div>
+  </div>
+
+  <div class="view" id="viewAbout">
+    <div class="aboutCard">
+      <h2>О программе</h2>
+      <p><b>TorrServer Lite</b> — упрощённый интерфейс для iPad на порту 8080.</p>
+      <p>Полный веб-интерфейс MatriX с тем же сервером: порт <b>8092</b>.</p>
+      <p id="aboutVer">…</p>
+      <a class="btn" href="http://192.168.31.231:8092/">MatriX :8092</a>
+      <div class="donateBlock">
+        <h2>Благодарность</h2>
+        <p>TorrServer и MatriX — проект <b>YouROK</b>.</p>
+        <a class="btn secondary" href="https://github.com/YouROK/TorrServer" target="_blank" rel="noopener">GitHub YouROK / TorrServer</a>
+      </div>
+      <div class="donateBlock">
+        <h2>Поддержать</h2>
+        <p>Если удобно — USDT. Сеть указывайте точно.</p>
+        <div class="donateRow">
+          <div class="net">USDT · TRC-20 (Tron)</div>
+          <div class="addr" id="donateTrc">TJizmaik6vdMMnCuBkzurm41isk8kg7d21</div>
+          <button type="button" class="secondary copyDonateBtn" data-target="donateTrc">Копировать</button>
+        </div>
+        <div class="donateRow">
+          <div class="net">USDT · ERC-20 (Ethereum)</div>
+          <div class="addr" id="donateErc">0xfB9f9361FD050d38b9f5cd996F4c42971A3FA85D</div>
+          <button type="button" class="secondary copyDonateBtn" data-target="donateErc">Копировать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div id="playerOverlay">
+    <h3 id="playerTitle">Фильм</h3>
+    <video id="playerVideo" controls playsinline webkit-playsinline preload="auto" x-webkit-airplay="allow"></video>
+    <div id="seekWrap">
+      <input type="range" id="seekBar" class="hidden" min="0" max="100" value="0" step="1">
+      <div id="seekRow">
+        <button type="button" class="btn secondary seekBtn" id="seekBackBtn">−10 мин</button>
+        <span id="seekLabel">0:00</span>
+        <button type="button" class="btn secondary seekBtn" id="seekFwdBtn">+10 мин</button>
+        <input id="seekToInput" type="text" inputmode="numeric" placeholder="1:05:00" title="Время HH:MM:SS или MM:SS">
+        <button type="button" class="btn secondary seekBtn" id="seekGoBtn">Перейти</button>
+      </div>
+    </div>
+    <div id="playerStatus">Готовим поток…</div>
+    <div class="bufWrap">
+      <i class="bufBar" id="bufBar"></i>
+      <div class="bufLabel" id="bufLabel">0%</div>
+    </div>
+    <button type="button" class="btn" id="tapPlayBtn">▶ Смотреть</button>
+    <a class="btn" id="vlcFromPlayer" href="#">VLC</a>
+    <button type="button" class="btn secondary" id="closePlayerBtn">Закрыть</button>
+  </div>
+
+  <script>
+(function () {
+  var API = '';
+  var watching = false;
+  var playUrl = '';
+  var listCache = [];
+  var prepTimer = null;
+  var bufTimer = null;
+  var playToken = 0;
+  var currentSid = '';
+  var playRetries = 0;
+  var playMeta = null;
+  var lastPosSave = 0;
+  var openMovieHash = '';
+  var posterDrafts = {};
+  var mediaDuration = 0;
+  var seekDragging = false;
+  var lastSeekJump = 0;
+
+  function $(id) { return document.getElementById(id); }
+
+  function showErr(msg) {
+    var el = $('err');
+    if (!msg) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'block';
+    el.innerHTML = String(msg);
+  }
+
+  function xhr(method, url, body, cb, timeoutMs) {
+    var req = new XMLHttpRequest();
+    req.open(method, url, true);
+    req.timeout = timeoutMs || 20000;
+    if (body) req.setRequestHeader('Content-Type', 'application/json');
+    req.onreadystatechange = function () {
+      if (req.readyState !== 4) return;
+      if (req.status >= 200 && req.status < 300) {
+        var data = req.responseText;
+        try { data = data ? JSON.parse(data) : null; } catch (e) {}
+        cb(null, data, req);
+      } else {
+        cb(new Error('HTTP ' + req.status), null, req);
+      }
+    };
+    req.onerror = function () { cb(new Error('Сеть'), null, req); };
+    req.ontimeout = function () { cb(new Error('Таймаут'), null, req); };
+    req.send(body || null);
+  }
+
+  function post(path, obj, cb) { xhr('POST', API + path, JSON.stringify(obj), cb); }
+
+  function getText(path, cb) {
+    var req = new XMLHttpRequest();
+    req.open('GET', API + path, true);
+    req.timeout = 10000;
+    req.onreadystatechange = function () {
+      if (req.readyState !== 4) return;
+      if (req.status >= 200 && req.status < 300) cb(null, req.responseText);
+      else cb(new Error('HTTP ' + req.status));
+    };
+    req.onerror = function () { cb(new Error('Сеть')); };
+    req.send(null);
+  }
+
+  function fmtTime(sec) {
+    sec = Math.floor(Number(sec) || 0);
+    if (sec < 0) sec = 0;
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    function z(n) { return (n < 10 ? '0' : '') + n; }
+    if (h > 0) return h + ':' + z(m) + ':' + z(s);
+    return m + ':' + z(s);
+  }
+
+  function posKey(hash, index) {
+    return 'ts_pos_' + String(hash || '') + '_' + String(index || '1');
+  }
+
+  function loadPos(hash, index) {
+    try {
+      var raw = localStorage.getItem(posKey(hash, index));
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      var t = Math.floor(Number(o && o.t) || 0);
+      if (t < 30) return null;
+      return { t: t, title: (o && o.title) || '', at: (o && o.at) || 0 };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function savePos(hash, index, t, title) {
+    t = Math.floor(Number(t) || 0);
+    if (!hash || t < 30) return;
+    try {
+      localStorage.setItem(posKey(hash, index), JSON.stringify({
+        t: t,
+        title: title || '',
+        at: new Date().getTime()
+      }));
+    } catch (e) {}
+  }
+
+  function clearPos(hash, index) {
+    try { localStorage.removeItem(posKey(hash, index)); } catch (e) {}
+  }
+
+  function rememberPlayback() {
+    if (!playMeta || !playMeta.hash) return;
+    var v = $('playerVideo');
+    var local = 0;
+    try { local = v.currentTime || 0; } catch (e) {}
+    if (!local || local < 5) return;
+    var abs = (playMeta.startOffset || 0) + local;
+    var dur = 0;
+    try { dur = v.duration || 0; } catch (e2) {}
+    if (dur && isFinite(dur) && dur > 60 && local / dur >= 0.92) {
+      clearPos(playMeta.hash, playMeta.index);
+      return;
+    }
+    savePos(playMeta.hash, playMeta.index, abs, playMeta.title || '');
+  }
+
+  function fmtSize(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  }
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(Number(sec) || 0));
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    function p(n) { return n < 10 ? '0' + n : String(n); }
+    if (h > 0) return h + ':' + p(m) + ':' + p(s);
+    return m + ':' + p(s);
+  }
+
+  function absPlayTime() {
+    var v = $('playerVideo');
+    var local = 0;
+    try { local = v.currentTime || 0; } catch (e) {}
+    return Math.floor((playMeta && playMeta.startOffset ? playMeta.startOffset : 0) + local);
+  }
+
+  function parseTimeInput(s) {
+    s = String(s || '').replace(/^\s+|\s+$/g, '');
+    if (!s) return -1;
+    if (/^\d+$/.test(s)) return Math.floor(Number(s));
+    var p = s.split(':');
+    var i, n = 0;
+    if (p.length > 3) return -1;
+    for (i = 0; i < p.length; i++) {
+      if (!/^\d+$/.test(p[i])) return -1;
+      n = n * 60 + parseInt(p[i], 10);
+    }
+    return n;
+  }
+
+  function updateSeekUi() {
+    var wrap = $('seekWrap');
+    var bar = $('seekBar');
+    var lab = $('seekLabel');
+    if (!wrap || !bar || !lab) return;
+    if (!playMeta) {
+      wrap.className = '';
+      return;
+    }
+    wrap.className = 'on';
+    var abs = absPlayTime();
+    if (mediaDuration > 0) {
+      bar.className = '';
+      bar.max = String(Math.floor(mediaDuration));
+      if (abs > mediaDuration) abs = Math.floor(mediaDuration);
+      if (!seekDragging) {
+        bar.value = String(abs);
+        lab.innerHTML = fmtTime(abs) + ' / ' + fmtTime(mediaDuration);
+      }
+    } else {
+      bar.className = 'hidden';
+      if (!seekDragging) lab.innerHTML = fmtTime(abs);
+    }
+  }
+
+  function loadMediaDuration(hash, index) {
+    mediaDuration = 0;
+    updateSeekUi();
+    xhr('GET',
+      '/hls/duration?hash=' + encodeURIComponent(hash) + '&index=' + encodeURIComponent(index),
+      null,
+      function (err, data) {
+        if (err || !data || !data.duration) return;
+        if (!playMeta || playMeta.hash !== hash) return;
+        mediaDuration = Math.floor(Number(data.duration) || 0);
+        updateSeekUi();
+      },
+      60000
+    );
+  }
+
+  function jumpToAbs(sec, force) {
+    if (!playMeta) return;
+    sec = Math.floor(Number(sec) || 0);
+    if (sec < 0) sec = 0;
+    if (mediaDuration > 0 && sec > mediaDuration - 3) sec = Math.max(0, Math.floor(mediaDuration - 3));
+    var cur = absPlayTime();
+    if (!force && Math.abs(cur - sec) < 8) return;
+    var now = new Date().getTime();
+    if (!force && now - lastSeekJump < 1200) return;
+    lastSeekJump = now;
+    setStatus('Перемотка на ' + fmtTime(sec) + '…');
+    openPlayer(playMeta.title, playMeta.hash, playMeta.index, playMeta.quality, sec);
+  }
+
+  function peersLine(t) {
+    var active = Number(t.active_peers);
+    var total = Number(t.total_peers);
+    var seeds = Number(t.connected_seeders);
+    if (isNaN(active)) active = 0;
+    if (isNaN(total)) total = 0;
+    if (isNaN(seeds)) seeds = 0;
+    return active + ' / ' + total + ' · ' + seeds;
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function shortTitle(t) {
+    var s = String(t || '');
+    s = s.replace(/\.(mkv|mp4|avi|mov|m4v|ts|m2ts|webm)$/i, '');
+    s = s.replace(/[\._]/g, ' ');
+    s = s.replace(/\s+(1080p|720p|480p|2160p|4k|hevc|x265|x264|bluray|webrip|web-dl|hdrip|bdrip|telecine|telesync|hdtv|proper|repack|dub|voice|cinematic).*$/i, '');
+    s = s.replace(/\s{2,}/g, ' ').replace(/^\s+|\s+$/g, '');
+    return s || String(t || '');
+  }
+
+  function isHashLike(s) {
+    s = String(s || '').replace(/^\s+|\s+$/g, '');
+    return /^[a-f0-9]{40}$/i.test(s) || /^[a-z2-7]{32}$/i.test(s);
+  }
+
+  function torrentDisplayTitle(t) {
+    if (!t) return 'Без названия';
+    var cands = [t.title, t.name];
+    var files = listVideoFiles(t);
+    var i, all;
+    for (i = 0; i < files.length && i < 5; i++) {
+      cands.push(files[i].path);
+      cands.push(fileName(files[i].path));
+    }
+    if (!files.length) {
+      all = getFiles(t);
+      for (i = 0; i < all.length && i < 5; i++) {
+        cands.push(all[i].path);
+        cands.push(fileName(all[i].path));
+      }
+    }
+    var j, s, pretty;
+    for (j = 0; j < cands.length; j++) {
+      s = String(cands[j] || '').replace(/^\s+|\s+$/g, '');
+      if (!s || isHashLike(s)) continue;
+      pretty = shortTitle(s);
+      if (pretty && !isHashLike(pretty)) return pretty;
+    }
+    return 'Без названия';
+  }
+
+  function ensureTorrentTitle(t) {
+    if (!t || !t.hash || t._titleFixed) return;
+    var cur = String(t.title || t.name || '').replace(/^\s+|\s+$/g, '');
+    if (cur && !isHashLike(cur)) return;
+    var nice = torrentDisplayTitle(t);
+    if (!nice || nice === 'Без названия') return;
+    t._titleFixed = true;
+    t.title = nice;
+    post('/torrents', { action: 'set', hash: t.hash, title: nice }, function () {});
+  }
+
+  function streamUrl(hash, index, name) {
+    return API + '/stream/' + encodeURIComponent(name || 'file') +
+      '?link=' + encodeURIComponent(hash) + '&index=' + index + '&play';
+  }
+
+  function hlsUrl(hash, index, h) {
+    var safe = String(hash).replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
+    var sid = safe + '_' + index + '_' + (h || '480') + '_' + String(new Date().getTime()).slice(-10);
+    return '/hls/files/' + sid + '/index.m3u8?hash=' + encodeURIComponent(hash) +
+      '&index=' + encodeURIComponent(index) + '&h=' + (h || '480');
+  }
+
+  function absUrl(path) {
+    return location.protocol + '//' + location.host + path;
+  }
+
+  function vlcUrl(url) { return 'vlc://' + url; }
+
+  function isVideo(name) {
+    return /\.(mkv|mp4|avi|mov|m4v|ts|m2ts|webm|wmv|flv)$/i.test(name || '');
+  }
+
+  function fileName(path) {
+    var p = String(path || 'file');
+    var parts = p.split('/');
+    return parts[parts.length - 1] || p;
+  }
+
+  function getFiles(t) {
+    var files = t.file_stats;
+    if (files && files.length) return files;
+    if (t.data) {
+      try {
+        var parsed = typeof t.data === 'string' ? JSON.parse(t.data) : t.data;
+        if (parsed && parsed.TorrServer && parsed.TorrServer.Files && parsed.TorrServer.Files.length) {
+          return parsed.TorrServer.Files;
+        }
+      } catch (e) {}
+    }
+    if (t.title && isVideo(t.title)) {
+      return [{ id: 1, path: t.title, length: t.torrent_size || 0 }];
+    }
+    return [{ id: 1, path: t.title || 'video.mkv', length: t.torrent_size || 0 }];
+  }
+
+  function posterStyle(url) {
+    if (!url) return '';
+    return 'background-image:url(\'' + String(url).replace(/'/g, '%27') + '\')';
+  }
+
+  function firstVideoFile(t) {
+    var all = listVideoFiles(t);
+    if (!all.length) return null;
+    var j, best = all[0], bestLen = best.length || 0;
+    for (j = 1; j < all.length; j++) {
+      if ((all[j].length || 0) >= bestLen) {
+        bestLen = all[j].length || 0;
+        best = all[j];
+      }
+    }
+    return best;
+  }
+
+  function listVideoFiles(t) {
+    var files = getFiles(t);
+    var out = [];
+    var j, f;
+    for (j = 0; j < files.length; j++) {
+      f = files[j];
+      if (!isVideo(f.path)) continue;
+      out.push({
+        id: f.id != null ? f.id : (j + 1),
+        path: f.path,
+        length: Number(f.length) || 0
+      });
+    }
+    try {
+      out.sort(function (a, b) {
+        return String(a.path).localeCompare(String(b.path), 'en', { numeric: true, sensitivity: 'base' });
+      });
+    } catch (eSort) {
+      out.sort(function (a, b) {
+        var pa = String(a.path).toLowerCase();
+        var pb = String(b.path).toLowerCase();
+        if (pa < pb) return -1;
+        if (pa > pb) return 1;
+        return 0;
+      });
+    }
+    return out;
+  }
+
+  function pad2(n) {
+    n = String(parseInt(n, 10) || 0);
+    return n.length < 2 ? ('0' + n) : n;
+  }
+
+  function parseSeasonEpisode(path) {
+    var name = fileName(path || '');
+    var m = name.match(/[Ss](\d+)\s*[._\-\s]*[Ee](\d+)/);
+    if (!m) m = name.match(/(\d+)[xX](\d+)/);
+    if (m) {
+      return {
+        season: parseInt(m[1], 10) || 0,
+        episode: parseInt(m[2], 10) || 0
+      };
+    }
+    return { season: 0, episode: 0 };
+  }
+
+  function episodeLabel(path, num) {
+    var se = parseSeasonEpisode(path);
+    if (se.season > 0 && se.episode > 0) {
+      return 'S' + pad2(se.season) + 'E' + pad2(se.episode);
+    }
+    var name = fileName(path || '');
+    name = name.replace(/\.[^.]+$/, '');
+    name = name.replace(/[._]/g, ' ');
+    if (name.length > 36) name = name.slice(0, 34) + '…';
+    return name || ('Серия ' + num);
+  }
+
+  function groupVideosBySeason(videos) {
+    var map = {};
+    var order = [];
+    var i, se, key, v;
+    for (i = 0; i < videos.length; i++) {
+      v = videos[i];
+      se = parseSeasonEpisode(v.path);
+      key = se.season > 0 ? se.season : 0;
+      if (!map[key]) {
+        map[key] = [];
+        order.push(key);
+      }
+      map[key].push(v);
+    }
+    order.sort(function (a, b) {
+      if (a === 0) return 1;
+      if (b === 0) return -1;
+      return a - b;
+    });
+    return { map: map, order: order };
+  }
+
+  var seasonPick = {}; // hash -> season number
+
+  function setStatus(t) { $('playerStatus').innerHTML = t; }
+
+  function setBuf(pct, label) {
+    pct = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    $('bufBar').style.width = pct + '%';
+    $('bufLabel').innerHTML = label || (pct + '%');
+  }
+
+  function stopPrepPoll() {
+    if (prepTimer) { clearInterval(prepTimer); prepTimer = null; }
+  }
+
+  function stopBufPoll() {
+    if (bufTimer) { clearInterval(bufTimer); bufTimer = null; }
+  }
+
+  function updatePlayBuffer() {
+    var v = $('playerVideo');
+    try {
+      if (!v || !v.buffered || !v.buffered.length) return;
+      var end = v.buffered.end(v.buffered.length - 1);
+      var dur = v.duration;
+      if (dur && isFinite(dur) && dur > 0) {
+        var pct = (end / dur) * 100;
+        setBuf(pct, 'Буфер ' + Math.round(pct) + '%');
+      } else if (end > 0) {
+        setBuf(Math.min(99, end * 5), 'Буфер…');
+      }
+    } catch (e) {}
+  }
+
+  function tryPlay(reason) {
+    var v = $('playerVideo');
+    if (!playUrl) return;
+    // уже играет — не трогаем
+    if (!v.paused && v.readyState >= 2) return;
+    try {
+      // Сначала с mute — браузер чаще разрешает автозапуск без жеста
+      v.muted = true;
+      var p = v.play();
+      if (p && typeof p.then === 'function') {
+        p.then(function () {
+          try { v.muted = false; } catch (e) {}
+          setStatus('Смотрите на сайте');
+          playRetries = 0;
+        }).catch(function () {
+          try { v.muted = false; } catch (e2) {}
+          playRetries++;
+          if (playRetries < 6) {
+            setStatus('Буфер готов — нажмите ▶ Смотреть');
+            setTimeout(function () { tryPlay('retry'); }, 700);
+          } else {
+            setStatus('Нажмите ▶ Смотреть');
+          }
+        });
+      } else {
+        try { v.muted = false; } catch (e3) {}
+        setStatus('Смотрите на сайте');
+      }
+    } catch (e4) {
+      setStatus('Нажмите ▶ Смотреть');
+    }
+  }
+
+  function attachVideo(url) {
+    playUrl = url;
+    playRetries = 0;
+    var v = $('playerVideo');
+    var startedMonitor = false;
+    var startPinned = false;
+    var wantStart = playMeta && playMeta.startOffset ? playMeta.startOffset : 0;
+    while (v.firstChild) v.removeChild(v.firstChild);
+    var src = document.createElement('source');
+    src.src = url;
+    src.type = 'application/x-mpegURL';
+    v.appendChild(src);
+    v.src = url;
+    try { v.load(); } catch (e) {}
+
+    function forceStartOnce() {
+      // только в самом начале — иначе Safari при буферизации сбрасывает фильм в 0 и «зависает»
+      if (startPinned) return;
+      if (wantStart >= 5) {
+        // поток уже с нужной позиции (-ss) — не тянем в 0
+        startPinned = true;
+        return;
+      }
+      try {
+        if (!v.paused && v.currentTime > 1) {
+          startPinned = true;
+          return;
+        }
+        if (v.currentTime > 0.25) v.currentTime = 0;
+      } catch (e0) {}
+    }
+
+    function markPinned() {
+      startPinned = true;
+    }
+
+    function startMonitor() {
+      if (startedMonitor) return;
+      startedMonitor = true;
+      stopBufPoll();
+      bufTimer = setInterval(function () {
+        updatePlayBuffer();
+        if (!currentSid) return;
+        xhr('GET', '/hls/progress?sid=' + encodeURIComponent(currentSid), null, function (err, st) {
+          if (err || !st) return;
+          if (!st.alive && st.segments > 0) {
+            // сегменты уже есть — можно досмотреть буфер, не пугаем сразу
+            setStatus('Доигрываем буфер…');
+          } else if (!st.alive && v.paused) {
+            setStatus('Поток на ПК остановился. Закройте и нажмите ▶ снова.');
+          }
+        });
+      }, 2000);
+    }
+
+    v.onloadedmetadata = function () { forceStartOnce(); };
+    v.oncanplay = function () {
+      forceStartOnce();
+      tryPlay('canplay');
+      startMonitor();
+    };
+    v.onloadeddata = function () {
+      forceStartOnce();
+      tryPlay('loaded');
+    };
+    v.addEventListener('playing', markPinned);
+    v.addEventListener('timeupdate', function () {
+      if (v.currentTime > 1.5) markPinned();
+    });
+
+    setTimeout(function () { forceStartOnce(); tryPlay('attach'); }, 250);
+    setTimeout(function () { tryPlay('attach2'); startMonitor(); }, 1500);
+  }
+
+  function stopHlsStream(sid, hash) {
+    var q = [];
+    if (sid) q.push('sid=' + encodeURIComponent(sid));
+    if (hash) q.push('hash=' + encodeURIComponent(hash));
+    if (!q.length) q.push('all=1');
+    try {
+      xhr('GET', '/hls/stop?' + q.join('&'), null, function () {});
+    } catch (e) {}
+  }
+
+  function closePlayer() {
+    rememberPlayback();
+    var sid = currentSid;
+    var hash = playMeta && playMeta.hash ? playMeta.hash : '';
+    watching = false;
+    playUrl = '';
+    currentSid = '';
+    playMeta = null;
+    playToken++;
+    stopPrepPoll();
+    stopBufPoll();
+    stopHlsStream(sid, hash);
+    var v = $('playerVideo');
+    try { v.pause(); } catch (e) {}
+    try { v.oncanplay = null; v.onloadeddata = null; } catch (e3) {}
+    try { v.removeAttribute('src'); v.load(); } catch (e2) {}
+    $('playerOverlay').className = '';
+    try { $('seekWrap').className = ''; } catch (e3) {}
+    mediaDuration = 0;
+    setBuf(0, '0%');
+    refresh();
+  }
+
+  function openPlayer(title, hash, index, quality, startSec) {
+    quality = quality || '480';
+    startSec = Math.floor(Number(startSec) || 0);
+    if (startSec < 0) startSec = 0;
+    watching = true;
+    playToken++;
+    var token = playToken;
+    stopPrepPoll();
+    stopBufPoll();
+    currentSid = '';
+    if (startSec < 5) {
+      try { clearPos(hash, index); } catch (eClr) {}
+    }
+    playMeta = {
+      hash: hash,
+      index: String(index || '1'),
+      title: title || '',
+      startOffset: startSec,
+      quality: quality
+    };
+    lastPosSave = 0;
+    seekDragging = false;
+    $('playerTitle').innerHTML = esc(title) + ' · ' + quality + 'p' +
+      (startSec >= 5 ? (' · с ' + fmtTime(startSec)) : '');
+    setStatus(startSec >= 5
+      ? ('Перемотка на ' + fmtTime(startSec) + ' · ' + quality + 'p…')
+      : ('Готовим ' + quality + 'p на ПК с начала…'));
+    setBuf(2, 'Старт…');
+    $('playerOverlay').className = 'on';
+    try { $('seekWrap').className = 'on'; updateSeekUi(); } catch (eSeek) {}
+    playUrl = '';
+    // VLC — оригинал с TorrServer (Range), там перемотка работает
+    $('vlcFromPlayer').href = vlcUrl(absUrl(streamUrl(hash, index, 'file')));
+    loadMediaDuration(hash, String(index || '1'));
+
+    var v = $('playerVideo');
+    try { v.pause(); } catch (e0) {}
+    try { v.currentTime = 0; } catch (e00) {}
+    try { v.removeAttribute('src'); while (v.firstChild) v.removeChild(v.firstChild); v.load(); } catch (e1) {}
+
+    var startAttempts = 0;
+    var maxStartAttempts = 3;
+
+    function beginHls() {
+      startAttempts++;
+      setStatus((startSec >= 5 ? 'С ' + fmtTime(startSec) + ' · ' : '') +
+        'Готовим ' + quality + 'p… попытка ' + startAttempts + '/' + maxStartAttempts);
+      var startUrl = '/hls/start?hash=' + encodeURIComponent(hash) +
+        '&index=' + encodeURIComponent(index) + '&h=' + encodeURIComponent(quality) +
+        '&t=' + encodeURIComponent(startSec) + '&restart=1';
+
+      xhr('GET', startUrl, null, function (err, data) {
+        if (token !== playToken) return;
+        if (err || !data || !data.ok || !data.sid) {
+          if (startAttempts < maxStartAttempts) {
+            setStatus('Торрент ещё не готов, повтор…');
+            setTimeout(function () { if (token === playToken) beginHls(); }, 2000);
+            return;
+          }
+          setStatus('Не удалось начать поток. Попробуйте VLC или позже ▶.');
+          setBuf(0, 'Ошибка');
+          return;
+        }
+        var sid = data.sid;
+        currentSid = sid;
+        var url = data.url || ('/hls/files/' + sid + '/index.m3u8');
+        url += (url.indexOf('?') >= 0 ? '&' : '?') + 'fresh=' + new Date().getTime();
+        setBuf(data.pct || 5, (data.pct || 5) + '%');
+
+        if (data.ready) {
+          setStatus('Поток готов · H.264 ' + quality + 'p' +
+            (startSec >= 5 ? (' · с ' + fmtTime(startSec)) : ''));
+          setBuf(100, '100%');
+          attachVideo(url);
+          return;
+        }
+
+        var ticks = 0;
+        var deadStreak = 0;
+        stopPrepPoll();
+        prepTimer = setInterval(function () {
+          if (token !== playToken) { stopPrepPoll(); return; }
+          ticks++;
+          xhr('GET', '/hls/progress?sid=' + encodeURIComponent(sid), null, function (e2, st) {
+            if (token !== playToken) return;
+            if (e2 || !st) {
+              setBuf(Math.min(90, 5 + ticks), 'Ждём…');
+              return;
+            }
+            if (st.error && !st.ready && !st.alive) {
+              deadStreak++;
+              setStatus('Поток ещё не стабилен… повтор ' + deadStreak);
+              if (deadStreak >= 2) {
+                stopPrepPoll();
+                if (startAttempts < maxStartAttempts) {
+                  setTimeout(function () { if (token === playToken) beginHls(); }, 1500);
+                } else {
+                  setStatus('Поток оборвался. Нажмите ▶ снова или VLC.');
+                  setBuf(0, 'Сбой');
+                }
+              }
+              return;
+            }
+            deadStreak = 0;
+            var pct = typeof st.pct === 'number' ? st.pct : 0;
+            if (!st.ready && pct < 90) pct = Math.max(pct, Math.min(90, 5 + ticks));
+            var need = st.need || 4;
+            setBuf(pct, pct + '% · ' + (st.segments || 0) + '/' + need);
+            setStatus('Буферизация на ПК… ' + (st.segments || 0) + '/' + need + ' кусков');
+            if (st.ready) {
+              stopPrepPoll();
+              setBuf(100, '100%');
+              setStatus('Поток готов · H.264 ' + quality + 'p' +
+                (startSec >= 5 ? (' · с ' + fmtTime(startSec)) : ''));
+              attachVideo(url);
+            }
+          });
+          if (ticks > 300) {
+            stopPrepPoll();
+            setStatus('Долго готовится. Откройте VLC или нажмите ▶ ещё раз.');
+          }
+        }, 700);
+      }, 120000);
+    }
+
+    beginHls();
+  }
+
+  $('tapPlayBtn').onclick = function () {
+    var v = $('playerVideo');
+    if (!playUrl) return;
+    if (!v.src && !v.currentSrc) {
+      v.src = playUrl;
+      try { v.load(); } catch (e) {}
+    }
+    playRetries = 0;
+    try {
+      v.muted = false;
+      var p = v.play();
+      if (p && typeof p.then === 'function') {
+        p.then(function () { setStatus('Воспроизведение'); })
+         .catch(function () { setStatus('Подождите буфер, затем снова ▶'); });
+      } else {
+        setStatus('Воспроизведение');
+      }
+    } catch (e2) {}
+  };
+
+  $('closePlayerBtn').onclick = closePlayer;
+
+  $('playerVideo').addEventListener('playing', function () {
+    setStatus('Смотрите на сайте');
+    updatePlayBuffer();
+  });
+  $('playerVideo').addEventListener('waiting', function () {
+    setStatus('Буферизация…');
+    updatePlayBuffer();
+  });
+  $('playerVideo').addEventListener('progress', updatePlayBuffer);
+  $('playerVideo').addEventListener('timeupdate', function () {
+    updatePlayBuffer();
+    updateSeekUi();
+    var now = new Date().getTime();
+    if (now - lastPosSave > 5000) {
+      lastPosSave = now;
+      rememberPlayback();
+    }
+  });
+  $('playerVideo').addEventListener('pause', rememberPlayback);
+  $('playerVideo').addEventListener('error', function () {
+    setStatus('Не открылось в Safari. Подождите и ▶ ещё раз, либо VLC.');
+  });
+  try {
+    window.addEventListener('pagehide', rememberPlayback);
+    window.addEventListener('beforeunload', rememberPlayback);
+  } catch (e0) {}
+
+  $('seekBar').addEventListener('input', function () {
+    seekDragging = true;
+    var t = Math.floor(Number(this.value) || 0);
+    $('seekLabel').innerHTML = fmtTime(t) + ' / ' +
+      (mediaDuration > 0 ? fmtTime(mediaDuration) : '—');
+  });
+  $('seekBar').addEventListener('change', function () {
+    seekDragging = false;
+    jumpToAbs(this.value, true);
+  });
+  $('seekBackBtn').onclick = function () {
+    jumpToAbs(absPlayTime() - 600, true);
+  };
+  $('seekFwdBtn').onclick = function () {
+    jumpToAbs(absPlayTime() + 600, true);
+  };
+  $('seekGoBtn').onclick = function () {
+    var t = parseTimeInput($('seekToInput').value);
+    if (t < 0) {
+      setStatus('Время: 1:05:00 или 65:00 или секунды');
+      return;
+    }
+    jumpToAbs(t, true);
+  };
+
+  function transcodeUrl(hash, index, h, startSec) {
+    var u = '/transcode/stream.ts?hash=' + encodeURIComponent(hash) +
+      '&index=' + encodeURIComponent(index) + '&h=' + (h || '480');
+    startSec = Math.floor(Number(startSec) || 0);
+    if (startSec >= 5) u += '&t=' + encodeURIComponent(startSec);
+    return u;
+  }
+
+  function playButtons(t) {
+    var videos = listVideoFiles(t);
+    var title = torrentDisplayTitle(t);
+    var curPoster = '';
+    try {
+      var ls = localStorage.getItem('ts_poster_' + t.hash);
+      if (ls) curPoster = ls;
+    } catch (eLs) {}
+    if (posterDrafts[t.hash]) curPoster = posterDrafts[t.hash];
+    else if (!curPoster && t.poster) curPoster = String(t.poster);
+
+    var html = '';
+    if (!videos.length) {
+      html += '<div class="epHint">Файлы ещё не загрузились — подождите или нажмите ↻</div>';
+    } else if (videos.length === 1) {
+      html += episodePlayRow(t, videos[0], title, false);
+    } else {
+      var grouped = groupVideosBySeason(videos);
+      var seasons = grouped.order;
+      var pick = seasonPick[t.hash];
+      if (pick == null || !grouped.map[pick]) {
+        pick = seasons[0];
+        seasonPick[t.hash] = pick;
+      }
+      var seasonEps = grouped.map[pick] || [];
+      html += '<div class="epHint">Сериал · файлов: ' + videos.length;
+      if (seasons.length > 1) html += ' · сезонов: ' + seasons.length;
+      html += '</div>';
+      if (seasons.length > 1) {
+        html += '<div class="seasonBar" data-hash="' + esc(t.hash) + '">';
+        var s, label;
+        for (s = 0; s < seasons.length; s++) {
+          label = seasons[s] > 0 ? ('Сезон ' + seasons[s]) : 'Прочее';
+          html += '<button type="button" class="seasonBtn' +
+            (seasons[s] === pick ? ' on' : '') +
+            '" data-hash="' + esc(t.hash) +
+            '" data-season="' + esc(seasons[s]) + '">' + esc(label) + '</button>';
+        }
+        html += '</div>';
+      }
+      html += '<div class="epList">';
+      var k;
+      for (k = 0; k < seasonEps.length; k++) {
+        html += '<div class="ep">';
+        html += '<div class="epName">' + esc(episodeLabel(seasonEps[k].path, k + 1)) +
+          ' · ' + fmtSize(seasonEps[k].length) + '</div>';
+        html += episodePlayRow(
+          t,
+          seasonEps[k],
+          title + ' · ' + episodeLabel(seasonEps[k].path, k + 1),
+          true
+        );
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '<input class="line posterInput" type="text" data-hash="' + esc(t.hash) +
+      '" placeholder="ссылка на постер" value="' + esc(curPoster) + '">';
+    html += '<button type="button" class="secondary setPosterBtn" data-hash="' + esc(t.hash) +
+      '">Сохранить постер</button>';
+    html += '<button type="button" class="secondary dropBtn" data-hash="' + esc(t.hash) + '">Сброс</button>';
+    html += '<button type="button" class="danger remBtn" data-hash="' + esc(t.hash) + '">Удал.</button>';
+    return html;
+  }
+
+  function episodePlayRow(t, f, title, compact) {
+    var idx = f.id != null ? f.id : 1;
+    var orig = streamUrl(t.hash, idx, fileName(f.path));
+    var html = '';
+    html += '<button type="button" class="btn watchBtn" data-hash="' + esc(t.hash) +
+      '" data-index="' + esc(idx) + '" data-title="' + esc(title) +
+      '" data-q="480">▶ ' + (compact ? '480' : 'Смотреть 480') + '</button>';
+    html += '<button type="button" class="btn watchBtn" data-hash="' + esc(t.hash) +
+      '" data-index="' + esc(idx) + '" data-title="' + esc(title) +
+      '" data-q="720">▶ ' + (compact ? '720' : 'Смотреть 720') + '</button>';
+    if (!compact) {
+      html += '<a class="btn secondary" href="' + esc(vlcUrl(absUrl(orig))) + '">VLC</a>';
+    } else {
+      html += '<a class="btn secondary" href="' + esc(vlcUrl(absUrl(orig))) + '">VLC</a>';
+    }
+    return html;
+  }
+
+  function refreshTorrentMeta(hash, cb) {
+    post('/torrents', { action: 'get', hash: hash }, function (err, data) {
+      if (err || !data) {
+        if (cb) cb(err || new Error('нет данных'));
+        return;
+      }
+      try {
+        var ls = localStorage.getItem('ts_poster_' + hash);
+        if (ls) data.poster = ls;
+      } catch (e0) {}
+      var i;
+      for (i = 0; i < listCache.length; i++) {
+        if (listCache[i] && listCache[i].hash === hash) {
+          if (!data.poster && listCache[i].poster) data.poster = listCache[i].poster;
+          listCache[i] = data;
+          break;
+        }
+      }
+      if (cb) cb(null, data);
+    });
+  }
+
+  function removeTorrent(hash) {
+    if (!hash) return;
+    showErr('Удаляю…');
+    watching = false;
+    try { $('playerOverlay').className = ''; } catch (e) {}
+    // Шлюз сначала гасит ffmpeg, потом drop+rem — иначе TorrServer не удаляет
+    var req = new XMLHttpRequest();
+    req.open('POST', '/remove', true);
+    req.timeout = 60000;
+    req.setRequestHeader('Content-Type', 'application/json');
+    req.onreadystatechange = function () {
+      if (req.readyState !== 4) return;
+      var data = null;
+      try { data = JSON.parse(req.responseText || '{}'); } catch (e) {}
+      if (req.status >= 200 && req.status < 300 && data && data.ok) {
+        showErr('');
+        refresh();
+        return;
+      }
+      showErr('Не удалось удалить' + (data && data.message ? (': ' + data.message) : ''));
+      refresh();
+    };
+    req.onerror = function () { showErr('Сеть при удалении'); refresh(); };
+    req.ontimeout = function () { showErr('Таймаут удаления'); refresh(); };
+    req.send(JSON.stringify({ hash: hash }));
+  }
+
+  function closeFilmSheet() {
+    openMovieHash = '';
+    var movies = document.getElementsByClassName('movie');
+    var i;
+    for (i = 0; i < movies.length; i++) {
+      movies[i].className = 'movie';
+    }
+  }
+
+  function openFilmSheet(t, movieEl) {
+    var hash = '';
+    if (movieEl) {
+      var poster = movieEl.getElementsByClassName('poster')[0];
+      if (poster) {
+        var idx = parseInt(poster.getAttribute('data-i'), 10);
+        if (!isNaN(idx) && listCache[idx]) hash = listCache[idx].hash || '';
+      }
+      if (!hash) hash = movieEl.getAttribute('data-hash') || '';
+    }
+    if (t && t.hash) hash = t.hash;
+    openMovieHash = hash || '';
+    var movies = document.getElementsByClassName('movie');
+    var i;
+    for (i = 0; i < movies.length; i++) {
+      movies[i].className = 'movie';
+    }
+    if (movieEl) {
+      movieEl.className = 'movie open';
+      bindListActions(movieEl);
+    }
+    // для сериалов подтянуть список файлов с TorrServer
+    if (hash) {
+      refreshTorrentMeta(hash, function (err, data) {
+        if (err || !data || openMovieHash !== hash) return;
+        var el = null;
+        var ms = document.getElementsByClassName('movie');
+        var j;
+        for (j = 0; j < ms.length; j++) {
+          if ((ms[j].getAttribute('data-hash') || '') === hash) {
+            el = ms[j];
+            break;
+          }
+        }
+        if (!el) return;
+        var actions = el.getElementsByClassName('actions')[0];
+        if (!actions) return;
+        actions.innerHTML = playButtons(data);
+        bindListActions(el);
+      });
+    }
+  }
+
+  function restoreOpenMovie() {
+    if (!openMovieHash) return;
+    var movies = document.getElementsByClassName('movie');
+    var i;
+    for (i = 0; i < movies.length; i++) {
+      if ((movies[i].getAttribute('data-hash') || '') === openMovieHash) {
+        movies[i].className = 'movie open';
+        bindListActions(movies[i]);
+        return;
+      }
+    }
+  }
+
+  function bindListActions(root) {
+    var i, btns, inputs;
+    btns = root.getElementsByClassName('seasonBtn');
+    for (i = 0; i < btns.length; i++) {
+      btns[i].onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        var hash = this.getAttribute('data-hash');
+        var season = parseInt(this.getAttribute('data-season'), 10);
+        if (isNaN(season)) season = 0;
+        seasonPick[hash] = season;
+        var t = null;
+        var j;
+        for (j = 0; j < listCache.length; j++) {
+          if (listCache[j] && listCache[j].hash === hash) {
+            t = listCache[j];
+            break;
+          }
+        }
+        if (!t) return;
+        var actions = root.getElementsByClassName('actions')[0];
+        if (!actions) return;
+        actions.innerHTML = playButtons(t);
+        bindListActions(root);
+      };
+    }
+    btns = root.getElementsByClassName('watchBtn');
+    for (i = 0; i < btns.length; i++) {
+      btns[i].onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        closeFilmSheet();
+        openPlayer(
+          this.getAttribute('data-title') || 'Фильм',
+          this.getAttribute('data-hash'),
+          this.getAttribute('data-index') || '1',
+          this.getAttribute('data-q') || '480',
+          0
+        );
+      };
+    }
+    btns = root.getElementsByClassName('remBtn');
+    for (i = 0; i < btns.length; i++) {
+      btns[i].onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        var hash = this.getAttribute('data-hash');
+        closeFilmSheet();
+        removeTorrent(hash);
+      };
+    }
+    btns = root.getElementsByClassName('dropBtn');
+    for (i = 0; i < btns.length; i++) {
+      btns[i].onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        var hash = this.getAttribute('data-hash');
+        closeFilmSheet();
+        post('/torrents', { action: 'drop', hash: hash }, function (err) {
+          if (err) showErr(err.message);
+          refresh();
+        });
+      };
+    }
+    btns = root.getElementsByClassName('setPosterBtn');
+    for (i = 0; i < btns.length; i++) {
+      btns[i].onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+        var hash = this.getAttribute('data-hash');
+        var input = null;
+        var inputs = root.getElementsByClassName('posterInput');
+        var j;
+        for (j = 0; j < inputs.length; j++) {
+          if ((inputs[j].getAttribute('data-hash') || '') === hash) {
+            input = inputs[j];
+            break;
+          }
+        }
+        setPoster(hash, input ? input.value : '');
+      };
+    }
+    inputs = root.getElementsByClassName('posterInput');
+    for (i = 0; i < inputs.length; i++) {
+      inputs[i].onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+      };
+      inputs[i].onfocus = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+      };
+      inputs[i].oninput = function () {
+        var h = this.getAttribute('data-hash') || '';
+        if (h) posterDrafts[h] = this.value;
+      };
+      inputs[i].onchange = function () {
+        var h = this.getAttribute('data-hash') || '';
+        if (h) posterDrafts[h] = this.value;
+      };
+      // старый iOS: ловим paste через keyup/blur
+      inputs[i].onkeyup = function () {
+        var h = this.getAttribute('data-hash') || '';
+        if (h) posterDrafts[h] = this.value;
+      };
+      inputs[i].onblur = function () {
+        var h = this.getAttribute('data-hash') || '';
+        if (h) posterDrafts[h] = this.value;
+      };
+    }
+    // VLC-ссылки тоже не должны закрывать через всплытие на постер
+    btns = root.getElementsByTagName('a');
+    for (i = 0; i < btns.length; i++) {
+      btns[i].onclick = function (e) {
+        if (e && e.stopPropagation) e.stopPropagation();
+      };
+    }
+  }
+
+  function bindPosterClicks(root) {
+    var posters = root.getElementsByClassName('poster');
+    var i;
+    for (i = 0; i < posters.length; i++) {
+      posters[i].onclick = function () {
+        var movie = this.parentNode;
+        if (movie && movie.className.indexOf('open') >= 0) {
+          closeFilmSheet();
+          return;
+        }
+        var idx = parseInt(this.getAttribute('data-i'), 10);
+        openFilmSheet(listCache[idx] || null, movie);
+      };
+    }
+  }
+
+  function render(list) {
+    // Не трогаем DOM списка, пока идёт просмотр — иначе убьём <video>
+    if (watching) {
+      listCache = list || [];
+      return;
+    }
+    // пока печатают ссылку на постер — не перерисовываем список
+    try {
+      var ae = document.activeElement;
+      if (ae && ae.className && String(ae.className).indexOf('posterInput') >= 0) {
+        listCache = list || [];
+        return;
+      }
+    } catch (eFocus) {}
+
+    var root = $('list');
+    var keepOpen = openMovieHash;
+    listCache = list || [];
+    // подмешать локальные постеры (на случай если шлюз/TS потерял)
+    var i0, t0, ls0;
+    for (i0 = 0; i0 < listCache.length; i0++) {
+      t0 = listCache[i0];
+      if (!t0 || !t0.hash) continue;
+      try {
+        ls0 = localStorage.getItem('ts_poster_' + t0.hash);
+        if (ls0 && !t0.poster) t0.poster = ls0;
+        if (ls0) posterDrafts[t0.hash] = ls0;
+      } catch (eP) {}
+    }
+    if (!listCache.length) {
+      openMovieHash = '';
+      root.innerHTML = '<div class="empty">Пока пусто. Добавьте торрент выше.</div>';
+      return;
+    }
+
+    // подчистить черновики, если TorrServer уже принял тот же постер
+    var i, t, title, pct, letter, html;
+    for (i = 0; i < listCache.length; i++) {
+      t = listCache[i];
+      if (t && t.hash && posterDrafts[t.hash] && t.poster &&
+          String(t.poster) === String(posterDrafts[t.hash])) {
+        delete posterDrafts[t.hash];
+      }
+    }
+    html = '';
+    for (i = 0; i < listCache.length; i++) {
+      t = listCache[i];
+      ensureTorrentTitle(t);
+      title = torrentDisplayTitle(t);
+      pct = Math.round((t.torrent_size > 0 ? ((t.loaded_size || 0) / t.torrent_size) : 0) * 100);
+      if (isNaN(pct)) pct = 0;
+      letter = (title.charAt(0) || '?').toUpperCase();
+
+      html += '<div class="movie" data-hash="' + esc(t.hash) + '">';
+      html += '<div class="poster" data-i="' + i + '" style="' + posterStyle(t.poster || posterDrafts[t.hash]) + '">';
+      if (!t.poster && !posterDrafts[t.hash]) html += '<div class="ph">' + esc(letter) + '</div>';
+      html += '</div><div class="info">';
+      html += '<h2>' + esc(title) + '</h2>';
+      html += '<div class="meta">' + esc(t.stat_string || '') + ' · ' + fmtSize(t.torrent_size);
+      if (t.download_speed) html += ' · ↓ ' + fmtSize(t.download_speed) + '/s';
+      html += '</div>';
+      html += '<div class="peers">Пиры·Сиды <b>' +
+        peersLine(t) + '</b></div>';
+      html += '<div class="bar"><i style="width:' + pct + '%"></i></div>';
+      html += '</div>';
+      html += '<div class="actions">' + playButtons(t) + '</div>';
+      html += '</div>';
+    }
+    root.innerHTML = html;
+    openMovieHash = keepOpen;
+    bindPosterClicks(root);
+    restoreOpenMovie();
+  }
+
+  function refresh() {
+    post('/torrents', { action: 'list' }, function (err, data) {
+      if (err) {
+        if (!watching) {
+          showErr(err.message);
+          $('list').innerHTML = '<div class="empty">Нет связи с TorrServer</div>';
+        }
+        return;
+      }
+      showErr('');
+      render(data || []);
+    });
+  }
+
+  function addMagnet() {
+    var link = ($('magnet').value || '').replace(/^\s+|\s+$/g, '');
+    if (!link) { showErr('Вставьте magnet или ссылку'); return; }
+    var poster = ($('posterUrl').value || '').replace(/^\s+|\s+$/g, '');
+    var title = ($('titleOverride').value || '').replace(/^\s+|\s+$/g, '');
+    var payload = { action: 'add', link: link, save_to_db: true };
+    if (poster) payload.poster = poster;
+    if (title) payload.title = title;
+    $('addBtn').disabled = true;
+    post('/torrents', payload, function (err) {
+      $('addBtn').disabled = false;
+      if (err) { showErr(err.message); return; }
+      $('magnet').value = '';
+      $('posterUrl').value = '';
+      $('titleOverride').value = '';
+      showErr('');
+      refresh();
+    });
+  }
+
+  function setPoster(hash, poster) {
+    if (!hash) return;
+    poster = (poster || '').replace(/^\s+|\s+$/g, '');
+    if (!poster) { showErr('Вставьте ссылку на постер'); return; }
+    if (poster.indexOf('http://') !== 0 && poster.indexOf('https://') !== 0) {
+      showErr('Ссылка должна начинаться с http:// или https://');
+      return;
+    }
+    posterDrafts[hash] = poster;
+    try { localStorage.setItem('ts_poster_' + hash, poster); } catch (e0) {}
+    var title = '';
+    var i;
+    for (i = 0; i < listCache.length; i++) {
+      if (listCache[i] && listCache[i].hash === hash) {
+        title = listCache[i].title || listCache[i].name || '';
+        break;
+      }
+    }
+    showErr('Сохраняю постер…');
+    var payload = { action: 'set', hash: hash, poster: poster };
+    if (title) payload.title = title;
+    post('/torrents', payload, function (err) {
+      if (err) { showErr(err.message); return; }
+      showErr('');
+      openMovieHash = hash;
+      refresh();
+    });
+  }
+
+  function uploadTorrentFiles() {
+    var input = $('torrentFile');
+    if (!input || !input.files || !input.files.length) {
+      showErr('Выберите файл .torrent');
+      return;
+    }
+    var fd = new FormData();
+    var i, name, ok = 0;
+    for (i = 0; i < input.files.length; i++) {
+      name = String(input.files[i].name || '').toLowerCase();
+      if (name && name.indexOf('.torrent') < 0) continue;
+      fd.append('file', input.files[i], input.files[i].name);
+      ok++;
+    }
+    if (!ok) {
+      showErr('Нужен файл с расширением .torrent');
+      return;
+    }
+    fd.append('save', 'true');
+    var poster = ($('posterUrl').value || '').replace(/^\s+|\s+$/g, '');
+    var title = ($('titleOverride').value || '').replace(/^\s+|\s+$/g, '');
+    if (poster) fd.append('poster', poster);
+    if (title) fd.append('title', title);
+
+    $('uploadBtn').disabled = true;
+    showErr('Загружаю .torrent…');
+    var req = new XMLHttpRequest();
+    req.open('POST', API + '/torrent/upload', true);
+    req.timeout = 60000;
+    req.onreadystatechange = function () {
+      if (req.readyState !== 4) return;
+      $('uploadBtn').disabled = false;
+      if (req.status >= 200 && req.status < 300) {
+        input.value = '';
+        try { $('posterUrl').value = ''; $('titleOverride').value = ''; } catch (e0) {}
+        showErr('');
+        refresh();
+        return;
+      }
+      showErr('Не удалось добавить .torrent (HTTP ' + req.status + ')');
+    };
+    req.onerror = function () {
+      $('uploadBtn').disabled = false;
+      showErr('Сеть при загрузке .torrent');
+    };
+    req.ontimeout = function () {
+      $('uploadBtn').disabled = false;
+      showErr('Таймаут загрузки .torrent');
+    };
+    req.send(fd);
+  }
+
+  function scanLocalTorrents() {
+    var box = $('localList');
+    box.innerHTML = '<div style="color:#888;font-size:13px">Читаю папку…</div>';
+    var req = new XMLHttpRequest();
+    req.open('GET', '/local-torrents', true);
+    req.timeout = 15000;
+    req.onreadystatechange = function () {
+      if (req.readyState !== 4) return;
+      if (req.status < 200 || req.status >= 300) {
+        box.innerHTML = '<div style="color:#f99">Не удалось прочитать папку</div>';
+        return;
+      }
+      var data = null;
+      try { data = JSON.parse(req.responseText); } catch (e) {}
+      var files = (data && data.files) || [];
+      if (!files.length) {
+        box.innerHTML = '<div class="hint">Пусто: C:\\vid\\torrents</div>';
+        return;
+      }
+      var html = '';
+      var i;
+      for (i = 0; i < files.length; i++) {
+        html += '<div style="margin:0 0 4px 0">';
+        html += '<span style="font-size:11px;word-wrap:break-word">' + esc(files[i].name) + '</span> ';
+        html += '<button type="button" class="btn localAddBtn" data-name="' + esc(files[i].name) + '">+</button>';
+        html += '</div>';
+      }
+      box.innerHTML = html;
+      var btns = box.getElementsByClassName('localAddBtn');
+      for (i = 0; i < btns.length; i++) {
+        btns[i].onclick = function () {
+          addLocalTorrent(this.getAttribute('data-name'), this);
+        };
+      }
+    };
+    req.onerror = function () { box.innerHTML = '<div style="color:#f99">Сеть</div>'; };
+    req.send(null);
+  }
+
+  function addLocalTorrent(name, btn) {
+    if (!name) return;
+    if (btn) btn.disabled = true;
+    showErr('Добавляю ' + name + '…');
+    var req = new XMLHttpRequest();
+    req.open('POST', '/local-torrents/add', true);
+    req.timeout = 60000;
+    req.setRequestHeader('Content-Type', 'application/json');
+    req.onreadystatechange = function () {
+      if (req.readyState !== 4) return;
+      if (btn) btn.disabled = false;
+      var data = null;
+      try { data = JSON.parse(req.responseText || '{}'); } catch (e) {}
+      if (req.status >= 200 && req.status < 300 && data && data.ok) {
+        showErr('');
+        refresh();
+        return;
+      }
+      showErr('Не добавился: ' + name);
+    };
+    req.onerror = function () {
+      if (btn) btn.disabled = false;
+      showErr('Сеть');
+    };
+    req.send(JSON.stringify({ name: name }));
+  }
+
+  function openDrawer(on) {
+    if ($('drawer')) $('drawer').className = on ? 'drawer on' : 'drawer';
+    if ($('drawerBack')) $('drawerBack').className = on ? 'drawerBack on' : 'drawerBack';
+  }
+
+  function setView(name) {
+    var views = ['torrents', 'settings', 'about'];
+    var titles = { torrents: 'Torrents', settings: 'Settings', about: 'About' };
+    var i, id, btn;
+    for (i = 0; i < views.length; i++) {
+      id = 'view' + views[i].charAt(0).toUpperCase() + views[i].slice(1);
+      if ($(id)) $(id).className = (views[i] === name) ? 'view on' : 'view';
+    }
+    btn = document.querySelectorAll('.drawerNav button');
+    for (i = 0; i < btn.length; i++) {
+      btn[i].className = (btn[i].getAttribute('data-view') === name) ? 'on' : '';
+    }
+    if ($('appTitle')) $('appTitle').innerHTML = titles[name] || 'Torrents';
+    openDrawer(false);
+    if (name === 'torrents') refresh();
+    if (name === 'settings') updateSettingsInfo();
+    if (name === 'about') {
+      if ($('aboutVer')) {
+        $('aboutVer').innerHTML = 'Сервер: <b>' + (($('ver') && $('ver').textContent) || '…') +
+          '</b><br>Торрентов: <b>' + (listCache ? listCache.length : 0) + '</b>';
+      }
+    }
+  }
+
+  function updateSettingsInfo() {
+    var el = $('settingsInfo');
+    if (!el) return;
+    el.innerHTML = 'Торрентов: <b>' + (listCache ? listCache.length : 0) + '</b><br>' +
+      'Lite: http://' + location.host + '/<br>' +
+      'MatriX: http://' + (location.hostname || '192.168.31.231') + ':8092/';
+    refreshHlsCacheInfo();
+  }
+
+  function refreshHlsCacheInfo() {
+    var el = $('hlsCacheInfo');
+    if (!el) return;
+    el.innerHTML = 'Считаю размер…';
+    xhr('GET', '/hls/cache', null, function (err, data) {
+      if (err || !data) {
+        el.innerHTML = 'Не удалось узнать размер кэша';
+        return;
+      }
+      var bytes = Number(data.bytes) || 0;
+      var folders = Number(data.folders) || 0;
+      el.innerHTML = 'Размер: <b>' + fmtSize(bytes) + '</b>' +
+        (folders ? (' · папок: <b>' + folders + '</b>') : '') +
+        '<br><span style="color:#777;font-size:12px">Перекодированные куски для Safari</span>';
+    }, 15000);
+  }
+
+  function clearHlsCache() {
+    if (!window.confirm('Удалить весь HLS кэш на ПК? Идущий просмотр остановится.')) return;
+    var el = $('hlsCacheInfo');
+    if (el) el.innerHTML = 'Удаляю…';
+    var btn = $('hlsCacheClearBtn');
+    if (btn) btn.disabled = true;
+    xhr('GET', '/hls/cache/clear', null, function (err, data) {
+      if (btn) btn.disabled = false;
+      if (err || !data || !data.ok) {
+        if (el) el.innerHTML = 'Ошибка очистки';
+        showErr('Не удалось очистить HLS кэш');
+        return;
+      }
+      showErr('');
+      refreshHlsCacheInfo();
+    }, 60000);
+  }
+
+  function focusAddBox() {
+    setView('torrents');
+    try {
+      var box = $('addBox');
+      if (box && box.scrollIntoView) box.scrollIntoView(true);
+      if ($('magnet')) $('magnet').focus();
+    } catch (e0) {}
+  }
+
+  $('addBtn').onclick = addMagnet;
+  $('uploadBtn').onclick = function () {
+    var input = $('torrentFile');
+    if (input && input.files && input.files.length) {
+      uploadTorrentFiles();
+      return;
+    }
+    if (input) input.click();
+  };
+  if ($('torrentFile')) {
+    $('torrentFile').onchange = function () {
+      if (this.files && this.files.length) uploadTorrentFiles();
+    };
+  }
+  $('scanLocalBtn').onclick = scanLocalTorrents;
+  $('refreshBtn').onclick = function () {
+    setView('torrents');
+    refresh();
+  };
+  if ($('menuBtn')) $('menuBtn').onclick = function () { openDrawer(true); };
+  if ($('drawerBack')) $('drawerBack').onclick = function () { openDrawer(false); };
+  if ($('navTorrents')) $('navTorrents').onclick = function () { setView('torrents'); };
+  if ($('navSettings')) $('navSettings').onclick = function () { setView('settings'); };
+  if ($('navAbout')) $('navAbout').onclick = function () { setView('about'); };
+
+  function copyText(text, btn) {
+    text = String(text || '');
+    if (!text) return;
+    function ok() {
+      if (!btn) return;
+      var old = btn.innerHTML;
+      btn.innerHTML = 'Скопировано';
+      setTimeout(function () { btn.innerHTML = old; }, 1200);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok).catch(function () {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          ok();
+        } catch (e) {}
+      });
+      return;
+    }
+    try {
+      var ta2 = document.createElement('textarea');
+      ta2.value = text;
+      document.body.appendChild(ta2);
+      ta2.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta2);
+      ok();
+    } catch (e2) {}
+  }
+
+  var copyBtns = document.getElementsByClassName('copyDonateBtn');
+  var ci;
+  for (ci = 0; ci < copyBtns.length; ci++) {
+    copyBtns[ci].onclick = function () {
+      var id = this.getAttribute('data-target');
+      var el = id ? $(id) : null;
+      copyText(el ? el.textContent : '', this);
+    };
+  }
+  if ($('settingsRefreshBtn')) {
+    $('settingsRefreshBtn').onclick = function () { setView('torrents'); refresh(); };
+  }
+  if ($('settingsFocusAdd')) $('settingsFocusAdd').onclick = focusAddBox;
+  if ($('hlsCacheRefreshBtn')) $('hlsCacheRefreshBtn').onclick = refreshHlsCacheInfo;
+  if ($('hlsCacheClearBtn')) $('hlsCacheClearBtn').onclick = clearHlsCache;
+
+  getText('/echo', function (err, text) {
+    var v = err ? 'offline' : esc(text);
+    if ($('ver')) $('ver').innerHTML = v;
+    if ($('verDrawer')) $('verDrawer').innerHTML = v;
+  });
+
+  setView('torrents');
+  refresh();
+  setInterval(function () {
+    if ($('viewTorrents') && $('viewTorrents').className.indexOf('on') >= 0) refresh();
+  }, 4000);
+})();
+  </script>
+</body>
+</html>
