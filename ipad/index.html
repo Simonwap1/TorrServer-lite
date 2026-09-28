@@ -1452,6 +1452,39 @@
     }
   }
 
+  function saveEpScroll() {
+    if (!openMovieHash) return null;
+    var movies = document.getElementsByClassName('movie');
+    var i, ep;
+    for (i = 0; i < movies.length; i++) {
+      if ((movies[i].getAttribute('data-hash') || '') !== openMovieHash) continue;
+      ep = movies[i].getElementsByClassName('epList')[0];
+      if (ep) return { hash: openMovieHash, top: ep.scrollTop || 0 };
+      return null;
+    }
+    return null;
+  }
+
+  function restoreEpScroll(saved) {
+    if (!saved || !saved.hash) return;
+    var top = saved.top || 0;
+    function apply() {
+      var movies = document.getElementsByClassName('movie');
+      var i, ep;
+      for (i = 0; i < movies.length; i++) {
+        if ((movies[i].getAttribute('data-hash') || '') !== saved.hash) continue;
+        ep = movies[i].getElementsByClassName('epList')[0];
+        if (ep) {
+          try { ep.scrollTop = top; } catch (e0) {}
+        }
+        return;
+      }
+    }
+    apply();
+    setTimeout(apply, 0);
+    setTimeout(apply, 50);
+  }
+
   function openFilmSheet(t, movieEl) {
     var hash = '';
     if (movieEl) {
@@ -1489,8 +1522,17 @@
         if (!el) return;
         var actions = el.getElementsByClassName('actions')[0];
         if (!actions) return;
+        var ep = el.getElementsByClassName('epList')[0];
+        var keepTop = ep ? (ep.scrollTop || 0) : 0;
         actions.innerHTML = playButtons(data);
         bindListActions(el);
+        ep = el.getElementsByClassName('epList')[0];
+        if (ep) {
+          try { ep.scrollTop = keepTop; } catch (eKeep) {}
+          setTimeout(function () {
+            try { ep.scrollTop = keepTop; } catch (e2) {}
+          }, 0);
+        }
       });
     }
   }
@@ -1653,6 +1695,11 @@
 
     var root = $('list');
     var keepOpen = openMovieHash;
+    var epScroll = saveEpScroll();
+    var pageScroll = 0;
+    try {
+      pageScroll = window.pageYOffset || document.documentElement.scrollTop || 0;
+    } catch (eScr) {}
     listCache = list || [];
     // подмешать локальные постеры (на случай если шлюз/TS потерял)
     var i0, t0, ls0;
@@ -1708,6 +1755,8 @@
     openMovieHash = keepOpen;
     bindPosterClicks(root);
     restoreOpenMovie();
+    restoreEpScroll(epScroll);
+    try { window.scrollTo(0, pageScroll); } catch (eScr2) {}
   }
 
   function refresh() {
